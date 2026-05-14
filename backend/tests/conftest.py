@@ -25,7 +25,7 @@ from httpx import ASGITransport
 def auth_override():
     """Bypass OAuth in API tests; auth behavior is covered separately."""
     async def _mock_current_user():
-        return TokenData(username="test-user", role="admin")
+        return TokenData(username="test-user", role="admin", user_id=1, can_manage_models=True)
 
     app.dependency_overrides[get_current_user] = _mock_current_user
     _last_request_time.clear()
@@ -62,8 +62,8 @@ def mock_vector_store():
             (MagicMock(page_content="Mocked context 1", metadata={"source": "test.pdf", "page": 1}), 0.1),
             (MagicMock(page_content="Mocked context 2", metadata={"source": "test.pdf", "page": 2}), 0.2),
         ]
-        # Mock collection.get
-        mock_store._collection.get.return_value = {
+        # Mock get_corpus (pgvector replacement for ChromaDB _collection.get)
+        mock_store.get_corpus.return_value = {
             "documents": ["Mocked context 1", "Mocked context 2"],
             "metadatas": [{"source": "test.pdf", "page": 1}, {"source": "test.pdf", "page": 2}]
         }

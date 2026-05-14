@@ -1,4 +1,5 @@
 import json
+import re
 
 import fitz  # PyMuPDF
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -31,8 +32,6 @@ def process_and_index_pdf(file_path: str, doc_type: str, source_name: str, check
         with fitz.open(file_path) as doc:
             for page_number, page in enumerate(doc, start=1):
                 page_text = page.get_text().strip()
-                # Lean Prompt Strategy: Basic text cleaning to remove redundant whitespace/newlines
-                import re
                 page_text = re.sub(r'\s+', ' ', page_text).strip()
                 
                 if page_text:

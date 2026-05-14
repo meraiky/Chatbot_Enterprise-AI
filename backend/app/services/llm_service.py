@@ -44,7 +44,7 @@ def _build_llm_from_selection(selection, streaming: bool = False):
             raise ValueError("ANTHROPIC_API_KEY is not configured for Claude model.")
         model_name = selection.model_name or "claude-3-5-sonnet-20241022"
         return ChatAnthropic(
-            model=model_name,
+            model_name=model_name,
             api_key=key,
             temperature=temperature,
             streaming=streaming,
@@ -56,7 +56,7 @@ def _build_llm_from_selection(selection, streaming: bool = False):
         except ImportError:
             raise ValueError("langchain-openai is not installed. Install it to use OpenAI-compatible models.")
         
-        key = api_key or settings.OPENAI_API_KEY if hasattr(settings, "OPENAI_API_KEY") else "dummy"
+        key = api_key or settings.OPENAI_API_KEY or "dummy"
         endpoint = selection.custom_endpoint
         model_name = selection.model_name or "gpt-4o"
         return ChatOpenAI(
@@ -77,7 +77,7 @@ def _get_default_llm(streaming: bool = False):
         if not settings.ANTHROPIC_API_KEY:
             raise ValueError("ANTHROPIC_API_KEY is not configured.")
         return ChatAnthropic(
-            model=model_name,
+            model_name=model_name,
             api_key=settings.ANTHROPIC_API_KEY,
             temperature=0.2,
             streaming=streaming,

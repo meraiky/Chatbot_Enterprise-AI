@@ -1,6 +1,6 @@
-"""admin.py — API endpoints for Topic Guard and QA Cache management.
+"""Admin APIs for topic guards, QA cache, and retrieval health.
 
-Protected by ADMIN_API_KEY when configured in .env.
+All routes in this module require a valid JWT for a user with the admin role.
 """
 
 from typing import Literal, Optional, List, Dict, Any
@@ -198,11 +198,29 @@ def clear_cache():
     return {"deleted": count, "message": f"Cleared {count} cache entries."}
 
 
+class RevokedTokensCleanupResponse(BaseModel):
+    deleted: int = Field(..., description="Number of expired token blacklist entries removed")
+
+@router.delete("/revoked-tokens/expired", response_model=RevokedTokensCleanupResponse, dependencies=[Depends(get_current_admin)])
+def cleanup_expired_revoked_tokens():
+    """Remove expired entries from the revoked_tokens table."""
+    from datetime import datetime, timezone
+    from app.core.database import get_conn
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM revoked_tokens WHERE expires_at < %s",
+                (datetime.now(timezone.utc),)
+            )
+            deleted = cur.rowcount
+    return {"deleted": deleted}
+
+
 @router.get("/health/retrieval", dependencies=[Depends(get_current_admin)])
 def retrieval_health():
     return {
         "reranker": reranker.health(),
-        "chroma": vector_store_health(),
+        "vector_store": vector_store_health(),
         "bm25_cache": BM25Searcher.cache_status(),
         "redis": cache_service.ping(),
     }

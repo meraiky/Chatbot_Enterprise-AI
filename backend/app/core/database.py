@@ -74,13 +74,11 @@ def init_db() -> None:
     try:
         from alembic.config import Config
         from alembic import command
-        import os
+        from pathlib import Path
 
-        # Path to alembic.ini relative to this file or absolute
-        # Assuming we are running from the backend root
-        ini_path = os.path.join(os.getcwd(), "alembic.ini")
+        ini_path = str(Path(__file__).resolve().parents[2] / "alembic.ini")
         
-        if not os.path.exists(ini_path):
+        if not Path(ini_path).exists():
             logger.warning("alembic.ini not found at %s, skipping automatic migrations", ini_path)
             return
 
