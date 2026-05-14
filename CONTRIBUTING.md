@@ -1,0 +1,87 @@
+# Contributing Guide
+
+Thank you for your interest in contributing! This document covers the workflow, code style, and PR process.
+
+## Branch Strategy
+
+| Branch prefix | Purpose |
+|---|---|
+| `feature/<name>` | New features |
+| `fix/<name>` | Bug fixes |
+| `docs/<name>` | Documentation only |
+| `chore/<name>` | Maintenance, dependency updates |
+| `refactor/<name>` | Refactoring without behavior change |
+
+Always branch from `main`. Keep branches short-lived and focused on one concern.
+
+## Development Setup
+
+```bash
+# Clone and enter the repo
+git clone https://github.com/YOUR_USERNAME/Chatbot_Enterprise-AI.git
+cd Chatbot_Enterprise-AI
+
+# Copy environment config
+cp .env.example .env    # fill in DATABASE_URL, JWT_SECRET_KEY, ENCRYPTION_KEY
+
+# Start local stack
+make dev-hot
+```
+
+## Code Style
+
+### Backend (Python 3.12)
+
+- Formatter / linter: **ruff** (config in `backend/pyproject.toml`)
+- Run: `make lint` or `cd backend && ruff check .`
+- Line length: 100 characters
+- Type annotations on all public functions
+
+### Frontend (TypeScript)
+
+- Linter: **ESLint** (`frontend/.eslintrc.cjs`)
+- Run: `cd frontend && npm run lint`
+- Formatter: Prettier-compatible (no trailing semicolons in TSX)
+
+## Commit Messages
+
+Use [Conventional Commits](https://www.conventionalcommits.org/):
+
+```
+feat: add streaming support for Claude provider
+fix: correct BM25 score normalization for short queries
+docs: update API reference for /chat/stream endpoint
+chore: bump sentence-transformers to 3.0
+```
+
+## Pull Request Checklist
+
+Before opening a PR, verify:
+
+- [ ] CI passes locally (`make test && make lint`)
+- [ ] New functionality has unit tests in `backend/tests/unit/`
+- [ ] `.env.example` updated if new env vars were added
+- [ ] `CHANGELOG.md` updated under `[Unreleased]`
+- [ ] No `.env`, secrets, or large binaries committed
+- [ ] Docstrings added for non-obvious functions
+
+## Running Tests
+
+```bash
+# Unit tests only (fast, no external services needed)
+make test
+
+# Or directly:
+cd backend && pytest tests/unit/ -v
+
+# Integration tests (requires running database)
+cd backend && pytest tests/integration/ -v -m integration
+```
+
+## Reporting Issues
+
+Use the GitHub issue templates:
+- **Bug report** — unexpected behavior, errors, crashes
+- **Feature request** — new capabilities or improvements
+
+For security vulnerabilities, see [SECURITY.md](SECURITY.md).

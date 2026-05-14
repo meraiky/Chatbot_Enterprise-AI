@@ -1,0 +1,34 @@
+# Secrets — never bake into image
+.env
+*.env
+.env.*
+
+# Dev tools
+.venv/
+venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# Data / caches
+data/bm25_cache/
+data/eval/results/
+chroma_db/
+storage/
+token_usage.db
+*.db
+*.log
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Tests (optional — remove if you want tests in the image)
+tests/

@@ -1,0 +1,46 @@
+[
+  {
+    "_comment": "--- Positive retrieval cases: expect the answer to be in indexed docs ---",
+    "question": "What is the password reset policy?",
+    "expected_chunks": ["password", "reset"],
+    "expected_answer_contains": [],
+    "mode": "Internal"
+  },
+  {
+    "question": "How do I request access to a new system?",
+    "expected_chunks": ["access", "request", "system"],
+    "expected_answer_contains": [],
+    "mode": "Internal"
+  },
+  {
+    "question": "What are the data retention rules?",
+    "expected_chunks": ["retention", "data"],
+    "expected_answer_contains": [],
+    "mode": "Internal"
+  },
+  {
+    "question": "Who is the IT security contact?",
+    "expected_chunks": ["security", "contact"],
+    "expected_answer_contains": [],
+    "mode": "Internal"
+  },
+  {
+    "question": "What is the leave application process?",
+    "expected_chunks": ["leave", "application"],
+    "expected_answer_contains": [],
+    "mode": "Internal"
+  },
+  {
+    "_comment": "--- Negative / out-of-scope cases: retrieval should return no relevant chunks ---",
+    "question": "What is the weather like today?",
+    "expected_chunks": [],
+    "expected_answer_contains": [],
+    "mode": "Internal"
+  },
+  {
+    "question": "Write me a poem about the ocean.",
+    "expected_chunks": [],
+    "expected_answer_contains": [],
+    "mode": "Internal"
+  }
+]

@@ -1,0 +1,70 @@
+# ─── Secrets & environment ────────────────────────────────────────────────────
+backend/.env
+.env
+.env.local
+.env.*.local
+.streamlit/secrets.toml
+
+# ─── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+dist/
+build/
+*.so
+
+# ─── Virtual environments ─────────────────────────────────────────────────────
+.venv/
+.venv314/
+backend/.venv/
+backend/venv/
+venv/
+env/
+
+# ─── Test & coverage artifacts ────────────────────────────────────────────────
+.pytest_cache/
+backend/.pytest_cache/
+coverage.xml
+.coverage
+htmlcov/
+
+# ─── Runtime data & caches ────────────────────────────────────────────────────
+backend/chroma_db/
+backend/storage/
+backend/data/bm25_cache/*.pkl
+backend/data/bm25_cache/*.json
+data/bm25_cache/
+backend/data/eval/results/
+
+# ─── Databases ────────────────────────────────────────────────────────────────
+backend/token_usage.db
+*.db
+*.sqlite3
+
+# ─── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+*.err.log
+*.out.log
+
+# ─── Frontend build artifacts ─────────────────────────────────────────────────
+frontend/node_modules/
+frontend/dist/
+node_modules/
+
+# ─── IDE & OS ─────────────────────────────────────────────────────────────────
+.vscode/settings.json
+.claude/settings.local.json
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+
+# ─── Docker ───────────────────────────────────────────────────────────────────
+.docker/
+
+# ─── Internal planning notes ─────────────────────────────────────────────────
+plans/
