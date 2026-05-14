@@ -205,7 +205,7 @@ async def create_admin_user(body: UserCreate):
     from app.core.auth import get_password_hash
 
     hashed_pw = get_password_hash(body.password)
-    sql = "INSERT INTO users (username, hashed_password, role) VALUES (%s, %s, %s) RETURNING id"
+    sql = "INSERT INTO users (username, hashed_password, role, can_manage_models) VALUES (%s, %s, %s, true) RETURNING id"
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:

@@ -230,15 +230,17 @@ class ChatResponse(BaseModel):
         }
 
 @router.post("/message", response_model=ChatResponse)
-async def send_message(
+def send_message(
     request: ChatRequest,
     current_user: TokenData = Depends(get_current_user)
 ):
     """
     Send a chat message and receive a complete response.
-    
+
     This endpoint uses a hybrid RAG pipeline (Vector + BM25 + Reranking) to provide
     accurate answers based on the selected mode (Internal/External).
+    Declared as `def` (not `async def`) so FastAPI runs it in a threadpool,
+    which is correct for a synchronous blocking RAG pipeline.
     """
     _rate_limit_check(request.mode, request.question)
     history = [m.model_dump() for m in (request.history or [])]

@@ -39,15 +39,14 @@ logger = logging.getLogger(__name__)
 
 
 def _public_upload_error(error: Exception) -> str:
-    message = str(error)
-    lower_message = message.lower()
-    if "api key not valid" in lower_message or "api_key_invalid" in lower_message:
+    message = str(error).lower()
+    if "api key not valid" in message or "api_key_invalid" in message:
         return "Gemini API key is invalid. Update GEMINI_API_KEY in backend/.env and restart the backend."
-    if "gemini_api_key is not configured" in lower_message:
+    if "gemini_api_key is not configured" in message:
         return "GEMINI_API_KEY is not configured in backend/.env."
-    if "permission" in lower_message and "chroma" in lower_message:
+    if "permission" in message and "chroma" in message:
         return "ChromaDB storage is not writable. Check backend/chroma_db permissions."
-    return message
+    return "Failed to process document. Please check the file and try again."
 
 class DocumentInfo(BaseModel):
     """Information about an indexed document."""

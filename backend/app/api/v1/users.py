@@ -150,6 +150,16 @@ def _require_user_id(current_user: TokenData) -> int:
     return current_user.user_id
 
 
+def _require_model_permission(current_user: TokenData) -> int:
+    user_id = _require_user_id(current_user)
+    if not current_user.can_manage_models:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your account does not have permission to manage model configurations.",
+        )
+    return user_id
+
+
 def _load_routing(user_id: int) -> RoutingConfigResponse:
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -221,7 +231,7 @@ async def create_my_model(
     body: ModelConfigCreate,
     current_user: TokenData = Depends(get_current_user),
 ):
-    user_id = _require_user_id(current_user)
+    user_id = _require_model_permission(current_user)
 
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -278,7 +288,7 @@ async def update_my_model(
     body: ModelConfigUpdate,
     current_user: TokenData = Depends(get_current_user),
 ):
-    user_id = _require_user_id(current_user)
+    user_id = _require_model_permission(current_user)
 
     patch = body.model_dump(exclude_unset=True)
     if not patch:
@@ -332,7 +342,7 @@ async def delete_my_model(
     model_id: int,
     current_user: TokenData = Depends(get_current_user),
 ):
-    user_id = _require_user_id(current_user)
+    user_id = _require_model_permission(current_user)
 
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -352,7 +362,7 @@ async def set_model_api_key(
     body: ModelCredentialUpdate,
     current_user: TokenData = Depends(get_current_user),
 ):
-    user_id = _require_user_id(current_user)
+    user_id = _require_model_permission(current_user)
     encrypted_api_key = encrypt_credential(body.api_key.strip())
 
     with get_conn() as conn:
@@ -390,7 +400,7 @@ async def delete_model_api_key(
     model_id: int,
     current_user: TokenData = Depends(get_current_user),
 ):
-    user_id = _require_user_id(current_user)
+    user_id = _require_model_permission(current_user)
 
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -427,7 +437,7 @@ async def test_my_model_connection(
     model_id: int,
     current_user: TokenData = Depends(get_current_user),
 ):
-    user_id = _require_user_id(current_user)
+    user_id = _require_model_permission(current_user)
 
     with get_conn() as conn:
         with conn.cursor() as cur:
