@@ -191,7 +191,8 @@ class PgVectorStore:
                     )
                 else:
                     cur.execute("SELECT COUNT(*) FROM document_chunks")
-                return cur.fetchone()[0]
+                row = cur.fetchone()
+                return int(row[0]) if row else 0
 
     # ── Delete ─────────────────────────────────────────────────────────────────
 
@@ -213,8 +214,14 @@ class PgVectorStore:
                 return cur.rowcount
 
 
+_store: PgVectorStore | None = None
+
+
 def get_vector_store() -> PgVectorStore:
-    return PgVectorStore()
+    global _store
+    if _store is None:
+        _store = PgVectorStore()
+    return _store
 
 
 def vector_store_health() -> dict[str, Any]:

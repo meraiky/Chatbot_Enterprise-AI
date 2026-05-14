@@ -31,10 +31,12 @@ You will receive a response within **48 hours**. We aim to release a patch withi
 - Keys are never logged, never returned in API responses, and never stored in `.env`
 
 ### Authentication
-- JWT tokens signed with `JWT_SECRET_KEY` (HS256), default expiry **2 hours** (configurable via `ACCESS_TOKEN_EXPIRE_MINUTES`)
+- JWT access tokens are signed with `JWT_SECRET_KEY` (HS256), default expiry **1 hour** (configurable via `ACCESS_TOKEN_EXPIRE_MINUTES`); production startup rejects values above 120 minutes
+- Browser sessions use a separate httpOnly refresh-token cookie with rotation on `/api/v1/auth/refresh`; logout revokes both access and refresh tokens when the database is available
 - Passwords hashed with bcrypt (cost factor 12, enforced in code); input silently truncated to 72 bytes (bcrypt limit) — avoid passwords longer than 72 bytes
 - Login rate limiting: max 5 attempts per 5 minutes per IP address
 - Token expiry enforced on all protected routes
+- Exception details are redacted before being written to logs or returned in debug error responses
 - `ALLOW_DEV_AUTH_BYPASS` bypasses authentication entirely — the backend refuses to start if this is `true` in `staging` or `production` environments
 
 ### LLM Security
@@ -43,6 +45,7 @@ You will receive a response within **48 hours**. We aim to release a patch withi
 - **PII redactor** strips email addresses, phone numbers, and other PII before logging
 
 ### Network
+- Custom OpenAI-compatible endpoints must use HTTPS, cannot target local/private network hosts, and require `CUSTOM_ENDPOINT_ALLOWLIST` in production
 - CORS restricted to `CORS_ORIGINS` — set explicitly in production
 - Rate limiting enforced on chat endpoints (Redis-backed, falls back to in-process); configurable via `RATE_LIMIT_SECONDS`
 - CSP enforced on all API responses; `unsafe-inline`/`unsafe-eval` only applied to Swagger UI paths in non-production environments

@@ -5,7 +5,7 @@ All routes in this module require a valid JWT for a user with the admin role.
 
 from typing import Literal, Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from app.core.auth import get_current_admin, TokenData
 
 from app.services import topic_guard_service
@@ -27,13 +27,8 @@ router = APIRouter()
 
 class GuardCreate(BaseModel):
     """Request model for creating a new topic guard rule."""
-    pattern: str = Field(..., min_length=1, description="Keyword or regex pattern to block", example="salary")
-    mode: Optional[Literal["Internal", "External"]] = Field(None, description="Mode to apply the guard to. If None, applies to all modes.")
-    reason: Optional[str] = Field(None, min_length=1, description="Reason shown to the user when blocked", example="This topic is restricted.")
-    is_regex: bool = Field(False, description="Whether the pattern should be treated as a regular expression")
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "pattern": "confidential",
                 "mode": "Internal",
@@ -41,16 +36,23 @@ class GuardCreate(BaseModel):
                 "is_regex": False
             }
         }
+    )
+
+    pattern: str = Field(..., min_length=1, description="Keyword or regex pattern to block", json_schema_extra={"example": "salary"})
+    mode: Optional[Literal["Internal", "External"]] = Field(None, description="Mode to apply the guard to. If None, applies to all modes.")
+    reason: Optional[str] = Field(None, min_length=1, description="Reason shown to the user when blocked", json_schema_extra={"example": "This topic is restricted."})
+    is_regex: bool = Field(False, description="Whether the pattern should be treated as a regular expression")
 
 
 class GuardToggle(BaseModel):
     """Request model for toggling a guard's active status."""
-    is_active: bool = Field(..., description="Set to true to enable the guard, false to disable it")
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {"is_active": True}
         }
+    )
+
+    is_active: bool = Field(..., description="Set to true to enable the guard, false to disable it")
 
 
 # ---------------------------------------------------------------------------
@@ -59,16 +61,8 @@ class GuardToggle(BaseModel):
 
 class GuardResponse(BaseModel):
     """Response model for a topic guard rule."""
-    id: int
-    pattern: str
-    mode: Optional[Literal["Internal", "External"]]
-    reason: Optional[str]
-    is_regex: bool
-    is_active: bool
-    created_at: Optional[str]
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "id": 1,
                 "pattern": "salary",
@@ -79,6 +73,15 @@ class GuardResponse(BaseModel):
                 "created_at": "2024-05-01T10:00:00Z"
             }
         }
+    )
+
+    id: int
+    pattern: str
+    mode: Optional[Literal["Internal", "External"]]
+    reason: Optional[str]
+    is_regex: bool
+    is_active: bool
+    created_at: Optional[str]
 
 class GuardListResponse(BaseModel):
     """Response model for listing topic guards."""
@@ -154,13 +157,8 @@ def delete_topic_guard(guard_id: int):
 
 class CacheStatsResponse(BaseModel):
     """Response model for QA cache statistics."""
-    total_entries: int = Field(..., description="Total number of cached Q&A pairs")
-    total_hits: int = Field(..., description="Total number of times cache was hit")
-    hit_rate: float = Field(..., description="Cache hit rate (0.0 to 1.0)")
-    top_questions: List[Dict[str, Any]] = Field(..., description="Most frequently hit cached questions")
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "total_entries": 1000,
                 "total_hits": 5000,
@@ -170,6 +168,12 @@ class CacheStatsResponse(BaseModel):
                 ]
             }
         }
+    )
+
+    total_entries: int = Field(..., description="Total number of cached Q&A pairs")
+    total_hits: int = Field(..., description="Total number of times cache was hit")
+    hit_rate: float = Field(..., description="Cache hit rate (0.0 to 1.0)")
+    top_questions: List[Dict[str, Any]] = Field(..., description="Most frequently hit cached questions")
 
 @router.get("/qa-cache/stats", response_model=CacheStatsResponse, dependencies=[Depends(get_current_admin)])
 def get_cache_stats():

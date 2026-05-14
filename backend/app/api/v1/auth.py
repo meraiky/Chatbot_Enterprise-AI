@@ -6,16 +6,19 @@ import redis
 from fastapi import APIRouter, HTTPException, Depends, status, Request
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.auth import (
     create_access_token,
+    create_refresh_token,
+    decode_refresh_token,
     get_current_user,
     revoke_access_token,
     verify_password,
     Token,
     TokenData,
     ACCESS_TOKEN_EXPIRE_MINUTES,
+    REFRESH_TOKEN_EXPIRE_DAYS,
     get_current_admin,
     oauth2_scheme,
 )
@@ -88,15 +91,45 @@ def _check_login_rate_limit(ip: str) -> None:
         )
     _login_attempts[ip].append(now)
 
+
+def _is_dev_environment() -> bool:
+    return settings.ENVIRONMENT.lower() in {"development", "local", "dev", "test"}
+
+
+def _token_payload(
+    username: str,
+    role: str,
+    user_id: int,
+    can_manage_models: bool,
+) -> dict:
+    return {"sub": username, "role": role, "uid": user_id, "can_m": can_manage_models}
+
+
+def _set_auth_cookies(response: JSONResponse, access_token: str, refresh_token: str) -> None:
+    secure = not _is_dev_environment()
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        samesite="lax",
+        secure=secure,
+        max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        path="/api",
+    )
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        samesite="lax",
+        secure=secure,
+        max_age=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+        path="/api/v1/auth",
+    )
+
 class UserResponse(BaseModel):
     """Response model for user creation/retrieval."""
-    id: int
-    username: str
-    role: str
-    can_manage_models: bool
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "id": 1,
                 "username": "admin",
@@ -104,6 +137,13 @@ class UserResponse(BaseModel):
                 "can_manage_models": True
             }
         }
+    )
+
+    id: int
+    username: str
+    role: str
+    can_manage_models: bool
+
 
 @router.post("/login", response_model=Token)
 async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
@@ -141,33 +181,56 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
         )
 
     # 3. Create JWT
+    payload = _token_payload(username, role, user_id, can_manage_models)
     access_token = create_access_token(
-        data={"sub": username, "role": role, "uid": user_id, "can_m": can_manage_models},
+        data=payload,
         expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     )
+    refresh_token = create_refresh_token(payload)
 
     # 4. Set httpOnly cookie (browser clients) + return token in body (API/Swagger clients)
-    _is_dev = settings.ENVIRONMENT.lower() in {"development", "local", "dev", "test"}
     response = JSONResponse(content={"access_token": access_token, "token_type": "bearer"})
-    response.set_cookie(
-        key="access_token",
-        value=access_token,
-        httponly=True,
-        samesite="lax",
-        secure=not _is_dev,
-        max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        path="/api",
+    _set_auth_cookies(response, access_token, refresh_token)
+    return response
+
+
+@router.post("/refresh", response_model=Token)
+async def refresh_session(request: Request):
+    """Rotate the refresh token and issue a new short-lived access token."""
+    refresh_token = request.cookies.get("refresh_token")
+    token_data = decode_refresh_token(refresh_token) if refresh_token else None
+    if token_data is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not refresh session",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Rotate refresh token: revoke the old refresh token before issuing a new pair.
+    revoke_access_token(refresh_token)
+    payload = _token_payload(
+        username=token_data.username or "",
+        role=token_data.role or "",
+        user_id=token_data.user_id or 0,
+        can_manage_models=bool(token_data.can_manage_models),
     )
+    access_token = create_access_token(payload)
+    new_refresh_token = create_refresh_token(payload)
+    response = JSONResponse(content={"access_token": access_token, "token_type": "bearer"})
+    _set_auth_cookies(response, access_token, new_refresh_token)
     return response
 
 
 @router.post("/logout")
 async def logout(request: Request, bearer: str | None = Depends(oauth2_scheme)):
-    """Revoke the current JWT and clear the auth cookie."""
-    token = bearer or request.cookies.get("access_token")
-    revoked = revoke_access_token(token) if token else False
-    response = JSONResponse(content={"revoked": revoked})
+    """Revoke current access/refresh tokens and clear auth cookies."""
+    access_token = bearer or request.cookies.get("access_token")
+    refresh_token = request.cookies.get("refresh_token")
+    revoked_access = revoke_access_token(access_token) if access_token else False
+    revoked_refresh = revoke_access_token(refresh_token) if refresh_token else False
+    response = JSONResponse(content={"revoked": revoked_access or revoked_refresh})
     response.delete_cookie("access_token", path="/api")
+    response.delete_cookie("refresh_token", path="/api/v1/auth")
     return response
 
 
@@ -182,13 +245,14 @@ async def get_me(current_user: TokenData = Depends(get_current_user)):
 
 class UserCreate(BaseModel):
     """Request model for creating a new admin user."""
-    username: str = Field(..., min_length=3, max_length=50, pattern=r"^\w+$", description="Alphanumeric username")
-    password: str = Field(..., min_length=8, max_length=128, description="Password must be at least 8 characters long")
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {"username": "admin_user", "password": "securepassword123"}
         }
+    )
+
+    username: str = Field(..., min_length=3, max_length=50, pattern=r"^\w+$", description="Alphanumeric username")
+    password: str = Field(..., min_length=8, max_length=128, description="Password must be at least 8 characters long")
 
 @router.post(
     "/create-admin",

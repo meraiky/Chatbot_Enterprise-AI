@@ -7,7 +7,7 @@ from pathlib import Path as FilePath
 from typing import Literal, List, Dict, Any
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Path as PathParam
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from app.core.auth import get_current_admin, TokenData
 
 from app.services.rag.data_ingestion import process_and_index_pdf
@@ -50,17 +50,8 @@ def _public_upload_error(error: Exception) -> str:
 
 class DocumentInfo(BaseModel):
     """Information about an indexed document."""
-    doc_id: str = Field(..., description="Unique identifier of the document")
-    source: str = Field(..., description="Original filename of the document")
-    type: str = Field(..., description="Document mode: Internal or External")
-    chunks: int = Field(..., description="Number of text chunks indexed")
-    pages: int = Field(..., description="Number of pages in the document")
-    uploaded_at: str = Field(..., description="ISO timestamp of upload")
-    checksum: str = Field(..., description="SHA-256 checksum of the file")
-    legacy: bool = Field(..., description="Whether the document was indexed using the legacy system")
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "doc_id": "internal-policy-abc123",
                 "source": "HR_Policy_2024.pdf",
@@ -72,13 +63,21 @@ class DocumentInfo(BaseModel):
                 "legacy": False
             }
         }
+    )
+
+    doc_id: str = Field(..., description="Unique identifier of the document")
+    source: str = Field(..., description="Original filename of the document")
+    type: str = Field(..., description="Document mode: Internal or External")
+    chunks: int = Field(..., description="Number of text chunks indexed")
+    pages: int = Field(..., description="Number of pages in the document")
+    uploaded_at: str = Field(..., description="ISO timestamp of upload")
+    checksum: str = Field(..., description="SHA-256 checksum of the file")
+    legacy: bool = Field(..., description="Whether the document was indexed using the legacy system")
 
 class DocumentListResponse(BaseModel):
     """Response for listing all indexed documents."""
-    documents: List[DocumentInfo]
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "documents": [
                     {
@@ -94,6 +93,9 @@ class DocumentListResponse(BaseModel):
                 ]
             }
         }
+    )
+
+    documents: List[DocumentInfo]
 
 
 class DocumentModeSummary(BaseModel):
@@ -110,14 +112,8 @@ class DocumentSummaryResponse(BaseModel):
 
 class UploadResponse(BaseModel):
     """Response for successful document upload and indexing."""
-    message: str = Field(..., description="Status message")
-    doc_id: str = Field(..., description="Generated unique ID for the document")
-    chunks_indexed: int = Field(..., description="Number of chunks created and indexed")
-    replaced_chunks: int = Field(..., description="Number of existing chunks replaced (if any)")
-    usage: Dict[str, Any] = Field(..., description="Token usage for the embedding process")
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "message": "Document uploaded and indexed successfully",
                 "doc_id": "internal-policy-abc123",
@@ -130,19 +126,27 @@ class UploadResponse(BaseModel):
                 }
             }
         }
+    )
+
+    message: str = Field(..., description="Status message")
+    doc_id: str = Field(..., description="Generated unique ID for the document")
+    chunks_indexed: int = Field(..., description="Number of chunks created and indexed")
+    replaced_chunks: int = Field(..., description="Number of existing chunks replaced (if any)")
+    usage: Dict[str, Any] = Field(..., description="Token usage for the embedding process")
 
 class DeleteResponse(BaseModel):
     """Response for successful document deletion."""
-    message: str = Field(..., description="Status message")
-    deleted_chunks: int = Field(..., description="Number of chunks removed from the vector store")
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "message": "Document deleted successfully",
                 "deleted_chunks": 45
             }
         }
+    )
+
+    message: str = Field(..., description="Status message")
+    deleted_chunks: int = Field(..., description="Number of chunks removed from the vector store")
 
 
 class RebuildVectorStoreResponse(BaseModel):

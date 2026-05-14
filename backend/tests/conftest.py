@@ -1,6 +1,5 @@
 import pytest
 import pytest_asyncio
-import asyncio
 from httpx import AsyncClient
 from main import app
 from app.api.v1 import chat as chat_api
@@ -11,13 +10,6 @@ from unittest.mock import MagicMock, patch
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create an instance of the default event loop for each test case."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
 
 from httpx import ASGITransport
 

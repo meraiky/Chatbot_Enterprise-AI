@@ -8,7 +8,7 @@ from uuid import uuid4
 from typing import Literal, List, Optional
 
 import redis
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from app.services.rag.query_engine import (
     answer_query,
     answer_query_stream_events,
@@ -66,27 +66,21 @@ def _sse(event: str, data: dict) -> str:
 
 class HistoryMessage(BaseModel):
     """Represents a single message in the conversation history."""
-    role: Literal["user", "assistant"]
-    content: str = Field(..., min_length=1, description="The content of the message")
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {"role": "user", "content": "What is the company leave policy?"}
         }
+    )
+
+    role: Literal["user", "assistant"]
+    content: str = Field(..., min_length=1, description="The content of the message")
 
 
 class ChatRequest(BaseModel):
     """Request body for chat queries."""
-    question: str = Field(..., min_length=1, max_length=4000, description="The user's question or prompt")
-    mode: Literal["Internal", "External"] = Field("Internal", description="Search mode: Internal for employees, External for public")
-    history: Optional[List[HistoryMessage]] = Field(default_factory=list, description="Previous conversation turns for context")
-    conversation_id: Optional[str] = Field(None, description="Stable client conversation/session id")
-
-    allow_web_search: bool = Field(False, description="Allow fallback to external web search when internal documents do not contain enough information")
-
-    class Config:
-        populate_by_name = True
-        json_schema_extra = {
+    model_config = ConfigDict(
+        populate_by_name=True,
+        json_schema_extra={
             "example": {
                 "question": "How do I apply for annual leave?",
                 "mode": "Internal",
@@ -95,7 +89,15 @@ class ChatRequest(BaseModel):
                     {"role": "assistant", "content": "Hello! How can I help you today?"}
                 ]
             }
-        }
+        },
+    )
+
+    question: str = Field(..., min_length=1, max_length=4000, description="The user's question or prompt")
+    mode: Literal["Internal", "External"] = Field("Internal", description="Search mode: Internal for employees, External for public")
+    history: Optional[List[HistoryMessage]] = Field(default_factory=list, description="Previous conversation turns for context")
+    conversation_id: Optional[str] = Field(None, description="Stable client conversation/session id")
+
+    allow_web_search: bool = Field(False, description="Allow fallback to external web search when internal documents do not contain enough information")
 
 
 def _get_rate_limit_client() -> redis.Redis | None:
@@ -193,19 +195,8 @@ class ExternalSourceInfo(BaseModel):
 
 class ChatResponse(BaseModel):
     """Standard response for non-streaming chat queries."""
-    reply: str = Field(..., description="The AI generated answer")
-    sources: List[SourceInfo] = Field(default_factory=list, description="List of internal documents used to generate the answer")
-    external_sources: List[ExternalSourceInfo] = Field(default_factory=list, description="External web sources used to generate the answer")
-    source_type: str = Field("internal", description="internal | external_web | hybrid | none")
-    web_search_offered: bool = Field(False, description="Whether the assistant is asking user permission to search the web")
-    web_search_performed: bool = Field(False, description="Whether external web search was executed")
-    suggestion: Optional[str] = Field(None, description="Optional follow-up suggestion shown when web search is offered")
-    cache_hit: bool = Field(..., description="Whether the answer was retrieved from semantic cache")
-    blocked: Optional[bool] = Field(None, description="Whether the request was blocked by the Topic Guard")
-    usage: ChatUsage = Field(..., description="Token usage details for the request")
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "reply": "You can apply for annual leave via the HR portal.",
                 "sources": [
@@ -228,6 +219,18 @@ class ChatResponse(BaseModel):
                 }
             }
         }
+    )
+
+    reply: str = Field(..., description="The AI generated answer")
+    sources: List[SourceInfo] = Field(default_factory=list, description="List of internal documents used to generate the answer")
+    external_sources: List[ExternalSourceInfo] = Field(default_factory=list, description="External web sources used to generate the answer")
+    source_type: str = Field("internal", description="internal | external_web | hybrid | none")
+    web_search_offered: bool = Field(False, description="Whether the assistant is asking user permission to search the web")
+    web_search_performed: bool = Field(False, description="Whether external web search was executed")
+    suggestion: Optional[str] = Field(None, description="Optional follow-up suggestion shown when web search is offered")
+    cache_hit: bool = Field(..., description="Whether the answer was retrieved from semantic cache")
+    blocked: Optional[bool] = Field(None, description="Whether the request was blocked by the Topic Guard")
+    usage: ChatUsage = Field(..., description="Token usage details for the request")
 
 @router.post("/message", response_model=ChatResponse)
 def send_message(

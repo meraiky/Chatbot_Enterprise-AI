@@ -1,7 +1,7 @@
 import logging
 
 from fastapi import APIRouter, HTTPException, Query, Depends
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Dict, Any
 from app.core.auth import get_current_admin, TokenData
 
@@ -21,16 +21,8 @@ router = APIRouter()
 
 class UsageSummaryResponse(BaseModel):
     """Summary of token usage across all operations."""
-    records: int = Field(..., description="Total number of usage records tracked")
-    input_tokens: int = Field(..., description="Total input tokens")
-    output_tokens: int = Field(..., description="Total output tokens")
-    total_tokens: int = Field(..., description="Total tokens consumed across all operations")
-    actual_tokens: int = Field(..., description="Tokens reported by providers")
-    estimated_tokens: int = Field(..., description="Tokens estimated locally")
-    by_operation: List[Dict[str, Any]] = Field(..., description="Token usage grouped by operation/model")
-    
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "total_requests": 150,
                 "total_tokens": 45000,
@@ -44,7 +36,16 @@ class UsageSummaryResponse(BaseModel):
                 }
             }
         }
+    )
 
+    records: int = Field(..., description="Total number of usage records tracked")
+    input_tokens: int = Field(..., description="Total input tokens")
+    output_tokens: int = Field(..., description="Total output tokens")
+    total_tokens: int = Field(..., description="Total tokens consumed across all operations")
+    actual_tokens: int = Field(..., description="Tokens reported by providers")
+    estimated_tokens: int = Field(..., description="Tokens estimated locally")
+    by_operation: List[Dict[str, Any]] = Field(..., description="Token usage grouped by operation/model")
+    
 
 class UsageRecord(BaseModel):
     """Individual usage record for a single operation."""
@@ -64,10 +65,8 @@ class UsageRecord(BaseModel):
 
 class UsageRecordsResponse(BaseModel):
     """List of usage records."""
-    records: List[UsageRecord]
-    
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "records": [
                     {
@@ -85,20 +84,24 @@ class UsageRecordsResponse(BaseModel):
                 ]
             }
         }
+    )
+
+    records: List[UsageRecord]
 
 
 class ClearUsageResponse(BaseModel):
     """Response for clearing usage records."""
-    message: str
-    deleted_records: int
-    
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "message": "Usage records cleared",
                 "deleted_records": 150
             }
         }
+    )
+
+    message: str
+    deleted_records: int
 
 
 class ConversationSummary(BaseModel):

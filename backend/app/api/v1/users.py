@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import json
 import logging
+import ipaddress
 from typing import Literal, Optional
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 
 from app.core.auth import TokenData, get_current_user
+from app.core.config import settings
 from app.core.database import get_conn
 from app.core.redaction import redact_sensitive
 
@@ -18,6 +21,60 @@ router = APIRouter()
 
 Provider = Literal["gemini", "anthropic", "openai", "custom"]
 RoutingStrategy = Literal["random", "round_robin", "fallback"]
+
+
+def _custom_endpoint_allowlist() -> set[str]:
+    return {
+        hostname.strip().lower()
+        for hostname in settings.CUSTOM_ENDPOINT_ALLOWLIST.split(",")
+        if hostname.strip()
+    }
+
+
+def _is_private_or_local_host(hostname: str) -> bool:
+    normalized = hostname.strip().lower()
+    if normalized in {"localhost"} or normalized.endswith(".localhost"):
+        return True
+    try:
+        address = ipaddress.ip_address(normalized)
+        return (
+            address.is_private
+            or address.is_loopback
+            or address.is_link_local
+            or address.is_reserved
+            or address.is_multicast
+        )
+    except ValueError:
+        return False
+
+
+def _validate_custom_endpoint(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return value
+    value = value.strip()
+    if not value:
+        return None
+
+    parsed = urlparse(value)
+    hostname = (parsed.hostname or "").lower()
+    if not hostname:
+        raise ValueError("custom_endpoint must include a hostname")
+
+    is_dev = settings.ENVIRONMENT.lower() in {"development", "local", "dev", "test"}
+    if _is_private_or_local_host(hostname):
+        if is_dev and hostname in {"localhost", "127.0.0.1", "::1"}:
+            return value
+        raise ValueError("custom_endpoint cannot target local or private network hosts")
+
+    if parsed.scheme != "https":
+        raise ValueError("custom_endpoint must use HTTPS")
+
+    allowlist = _custom_endpoint_allowlist()
+    if allowlist and hostname not in allowlist:
+        raise ValueError("custom_endpoint host is not allowlisted")
+    if not allowlist and not is_dev:
+        raise ValueError("CUSTOM_ENDPOINT_ALLOWLIST is required for custom endpoints in production")
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -38,18 +95,7 @@ class ModelConfigCreate(BaseModel):
     @field_validator("custom_endpoint")
     @classmethod
     def validate_custom_endpoint(cls, value: Optional[str]) -> Optional[str]:
-        if value is None:
-            return value
-        value = value.strip()
-        if not value:
-            return None
-        if not (
-            value.startswith("https://")
-            or value.startswith("http://localhost")
-            or value.startswith("http://127.0.0.1")
-        ):
-            raise ValueError("custom_endpoint must be HTTPS or localhost")
-        return value
+        return _validate_custom_endpoint(value)
 
 
 class ModelConfigUpdate(BaseModel):
@@ -60,6 +106,11 @@ class ModelConfigUpdate(BaseModel):
     system_prompt: Optional[str] = Field(default=None, max_length=4000)
     is_active: Optional[bool] = None
     priority: Optional[int] = None
+
+    @field_validator("custom_endpoint")
+    @classmethod
+    def validate_custom_endpoint(cls, value: Optional[str]) -> Optional[str]:
+        return _validate_custom_endpoint(value)
 
 
 class ModelCredentialUpdate(BaseModel):

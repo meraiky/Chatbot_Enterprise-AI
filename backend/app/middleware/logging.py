@@ -4,6 +4,8 @@ from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 import structlog
 
+from app.core.redaction import redact_sensitive
+
 class LoggingMiddleware(BaseHTTPMiddleware):
     """
     Middleware to inject a unique request ID into the log context
@@ -50,6 +52,6 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             logger.exception(
                 "request_failed",
                 duration=f"{duration:.4f}s",
-                error=str(e)
+                error=redact_sensitive(e)
             )
             raise e

@@ -10,12 +10,12 @@ from app.core.config import settings
 from app.core.database import get_conn
 
 ALGORITHM = "HS256"
-# Default: 2h. Override with ACCESS_TOKEN_EXPIRE_MINUTES in .env.
-# 24h is convenient in dev but dangerously long in production — a stolen token
-# stays valid for the full window with no server-side revocation.
+# Default: 1h. Override with ACCESS_TOKEN_EXPIRE_MINUTES in .env.
+# Keep this short in production until a rotating refresh-token flow is added.
 ACCESS_TOKEN_EXPIRE_MINUTES: int = int(
-    __import__("os").environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", "120")
+    settings.ACCESS_TOKEN_EXPIRE_MINUTES
 )
+REFRESH_TOKEN_EXPIRE_DAYS: int = int(settings.REFRESH_TOKEN_EXPIRE_DAYS)
 
 # ---------------------------------------------------------------------------
 # Schemas
@@ -31,6 +31,7 @@ class TokenData(BaseModel):
     user_id: Optional[int] = None
     jti: Optional[str] = None
     can_manage_models: Optional[bool] = None
+    token_type: Optional[str] = None
 
 # ---------------------------------------------------------------------------
 # Logic
@@ -57,12 +58,28 @@ def _get_jwt_secret() -> str:
     return secret
 
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+def _create_token(data: dict, token_type: str, expires_delta: timedelta):
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
-    to_encode.update({"exp": expire, "jti": str(uuid4())})
+    expire = datetime.now(timezone.utc) + expires_delta
+    to_encode.update({"exp": expire, "jti": str(uuid4()), "typ": token_type})
     encoded_jwt = jwt.encode(to_encode, _get_jwt_secret(), algorithm=ALGORITHM)
     return encoded_jwt
+
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    return _create_token(
+        data=data,
+        token_type="access",
+        expires_delta=expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
+
+
+def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None):
+    return _create_token(
+        data=data,
+        token_type="refresh",
+        expires_delta=expires_delta or timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
+    )
 
 
 def _is_token_revoked(jti: str | None) -> bool:
@@ -106,9 +123,12 @@ def revoke_access_token(token: str) -> bool:
     return True
 
 
-def decode_access_token(token: str) -> Optional[TokenData]:
+def decode_token(token: str, expected_type: str = "access") -> Optional[TokenData]:
     try:
         payload = jwt.decode(token, _get_jwt_secret(), algorithms=[ALGORITHM])
+        token_type: str = payload.get("typ", "access")
+        if token_type != expected_type:
+            return None
         username: str = payload.get("sub")
         role: str = payload.get("role")
         user_id: int = payload.get("uid")
@@ -123,10 +143,19 @@ def decode_access_token(token: str) -> Optional[TokenData]:
             role=role,
             user_id=user_id,
             jti=jti,
-            can_manage_models=can_manage_models
+            can_manage_models=can_manage_models,
+            token_type=token_type,
         )
     except JWTError:
         return None
+
+
+def decode_access_token(token: str) -> Optional[TokenData]:
+    return decode_token(token, expected_type="access")
+
+
+def decode_refresh_token(token: str) -> Optional[TokenData]:
+    return decode_token(token, expected_type="refresh")
 
 from fastapi import Cookie, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
@@ -149,7 +178,9 @@ async def get_current_user(
     cookie_token: Optional[str] = Cookie(None, alias="access_token"),
 ) -> TokenData:
     """Accept token from Authorization: Bearer header (API/Swagger) or httpOnly cookie (browser)."""
-    token = bearer or cookie_token
+    token = bearer if isinstance(bearer, str) else None
+    if token is None and isinstance(cookie_token, str):
+        token = cookie_token
 
     if not token and _allow_dev_user():
         return TokenData(username="dev-admin", role="admin", can_manage_models=True)

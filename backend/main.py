@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1 import chat, document, usage, admin, auth, users
@@ -8,6 +10,13 @@ from app.middleware.security import setup_security_middleware
 from app.middleware.logging import LoggingMiddleware
 
 _is_prod = settings.ENVIRONMENT == "production"
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    _run_startup_checks()
+    yield
+
 
 app = FastAPI(
     title=f"{settings.PROJECT_NAME} API",
@@ -20,6 +29,7 @@ app = FastAPI(
     docs_url=None if _is_prod else "/docs",
     redoc_url=None if _is_prod else "/redoc",
     openapi_url=None if _is_prod else "/openapi.json",
+    lifespan=lifespan,
     openapi_tags=[
         {"name": "Chat", "description": "Core chat endpoints for interacting with the AI"},
         {"name": "Document", "description": "Knowledge base management and PDF indexing"},
@@ -44,6 +54,7 @@ app.add_middleware(LoggingMiddleware)
 
 # Security Headers
 setup_security_middleware(app)
+setup_exception_handlers(app)
 
 def _validate_startup_secrets() -> None:
     import base64
@@ -71,9 +82,8 @@ def _validate_startup_secrets() -> None:
         raise RuntimeError("Startup secret validation failed:\n  - " + "\n  - ".join(errors))
 
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialise PostgreSQL tables (qa_cache, topic_guard) on boot."""
+def _run_startup_checks() -> None:
+    """Validate runtime settings and run migrations before accepting traffic."""
     # Hard block: dev auth bypass is only safe in an explicit local-dev environment.
     _safe_envs = {"development", "local", "dev", "test"}
     if settings.ALLOW_DEV_AUTH_BYPASS and settings.ENVIRONMENT.lower() not in _safe_envs:
@@ -86,19 +96,17 @@ async def startup_event():
     # Validate critical secrets — fail fast before accepting any traffic.
     _validate_startup_secrets()
 
-    # Warn (or block) dangerously long token lifetimes in production.
+    # Block dangerously long token lifetimes in production.
     from app.core.auth import ACCESS_TOKEN_EXPIRE_MINUTES
     _prod = settings.ENVIRONMENT.lower() not in {"development", "local", "dev", "test"}
-    if _prod and ACCESS_TOKEN_EXPIRE_MINUTES > 480:
+    if _prod and ACCESS_TOKEN_EXPIRE_MINUTES > 120:
         raise RuntimeError(
             f"ACCESS_TOKEN_EXPIRE_MINUTES={ACCESS_TOKEN_EXPIRE_MINUTES} is too long for production "
-            "(max recommended: 480 min / 8 h). Set a shorter value in .env."
+            "(max allowed here: 120 min). Add a rotating refresh-token flow before using longer sessions."
         )
 
     if settings.DATABASE_URL:
         init_db()
-
-    setup_exception_handlers(app)
 
 @app.get("/")
 def health_check():

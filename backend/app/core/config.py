@@ -1,6 +1,7 @@
 from pathlib import Path
+import os
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -8,8 +9,11 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]
 PROJECT_ROOT = BACKEND_DIR.parent
 ENV_FILES = (PROJECT_ROOT / ".env", BACKEND_DIR / ".env")
 
+_ORIGINAL_ENV_KEYS = set(os.environ)
 for env_file in ENV_FILES:
-    load_dotenv(env_file, override=True)
+    for key, value in dotenv_values(env_file).items():
+        if value is not None and key not in _ORIGINAL_ENV_KEYS:
+            os.environ[key] = value
 
 
 class Settings(BaseSettings):
@@ -31,11 +35,12 @@ class Settings(BaseSettings):
     MAX_HISTORY_MESSAGES: int = 10
     MAX_HISTORY_TOKENS: int = 1500
     RATE_LIMIT_SECONDS: int = 2
-    ADMIN_API_KEY: str = ""  # Set in .env to protect admin endpoints
     ANTHROPIC_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
     LOCAL_COST_BUDGET: float = 50.0  # Local budget for cost tracking alerts
     JWT_SECRET_KEY: str = ""
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     ALLOW_DEV_AUTH_BYPASS: bool = False
     TOPIC_GUARD_FAIL_CLOSED: bool = True
     ENCRYPTION_KEY: str = ""  # 32-byte base64 key for encrypting user credentials
@@ -44,6 +49,7 @@ class Settings(BaseSettings):
     GOOGLE_SEARCH_API_KEY: str = ""
     GOOGLE_SEARCH_CX: str = ""
     BING_SEARCH_API_KEY: str = ""
+    CUSTOM_ENDPOINT_ALLOWLIST: str = ""  # Comma-separated hostnames allowed for custom LLM endpoints.
 
     # Railway PostgreSQL — auto-injected by Railway, or set manually in .env
     DATABASE_URL: str = ""
