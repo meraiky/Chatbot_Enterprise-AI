@@ -61,8 +61,9 @@ def seed_users(conn):
                 print(f"  user '{u['username']}' already exists, skipping")
                 continue
             cur.execute(
-                "INSERT INTO users (username, hashed_password, role, is_active) VALUES (%s, %s, %s, TRUE)",
-                (u["username"], get_password_hash(u["password"]), u["role"]),
+                """INSERT INTO users (username, hashed_password, role, is_active, can_manage_models)
+                   VALUES (%s, %s, %s, TRUE, %s)""",
+                (u["username"], get_password_hash(u["password"]), u["role"], u["role"] == "admin"),
             )
             print(f"  created user '{u['username']}' ({u['role']})")
     conn.commit()

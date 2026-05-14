@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.core.auth import TokenData, get_current_user
 from app.core.database import get_conn
+from app.core.redaction import redact_sensitive
 
 logger = logging.getLogger(__name__)
 from app.services.credential_service import decrypt_credential, encrypt_credential
@@ -463,7 +464,7 @@ async def test_my_model_connection(
         try:
             api_key = decrypt_credential(api_key_encrypted)
         except Exception as exc:
-            raise HTTPException(status_code=400, detail=f"Failed to decrypt API key: {exc}") from exc
+            raise HTTPException(status_code=400, detail="Failed to decrypt API key.") from exc
 
     if provider == "gemini":
         from langchain_google_genai import ChatGoogleGenerativeAI
@@ -485,8 +486,8 @@ async def test_my_model_connection(
             raise HTTPException(status_code=400, detail="Missing API key for this model")
 
         llm = ChatAnthropic(
-            model=model_name or "claude-sonnet-4-20250514",
-            anthropic_api_key=key,
+            model_name=model_name or "claude-sonnet-4-20250514",
+            api_key=key,
             temperature=temperature,
         )
     elif provider in {"openai", "custom"}:
@@ -527,7 +528,7 @@ async def test_my_model_connection(
             provider=provider,
             model_name=model_name,
             endpoint=custom_endpoint,
-            detail=f"Connection failed: {exc}",
+            detail=f"Connection failed: {redact_sensitive(exc)}",
         )
 
 

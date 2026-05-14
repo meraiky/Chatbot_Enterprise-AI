@@ -1258,19 +1258,11 @@ async def answer_query_stream_events_hybrid(
 
     logger.info("[HYBRID STREAM] request_id=%s NO INTERNAL CONTEXT -> web search", request_id)
     
-    # Inline web search logic to avoid blocking on answer_query_hybrid()
     try:
         from app.services.web_search_service import create_web_search_service
-        import asyncio
-        
+
         web_service = create_web_search_service()
-        # Run async search in sync context using asyncio
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            web_result = loop.run_until_complete(web_service.search_with_cache(question, user_id=user_id))
-        finally:
-            loop.close()
+        web_result = await web_service.search_with_cache(question, user_id=user_id)
         
         external_sources = web_result.get("sources") or web_result.get("results") or []
         reply = str(web_result.get("answer") or "Không tìm thấy kết quả phù hợp trên Internet.")

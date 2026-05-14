@@ -54,7 +54,7 @@ jobs:
         DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         JWT_SECRET_KEY: test-secret-key-for-ci
-        ENCRYPTION_KEY: dGVzdC1lbmNyeXB0aW9uLWtleS0zMi1ieXRlcw==
+        ENCRYPTION_KEY: dGVzdC1lbmNyeXB0aW9uLWtleS1jaS0zMmJ5dGVzISE=
         ENVIRONMENT: test
       run: |
         pytest tests/unit/ -v --tb=short --cov=app --cov-report=term-missing --cov-report=xml
