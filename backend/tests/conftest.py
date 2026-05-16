@@ -78,9 +78,10 @@ def mock_db():
 
 @pytest.fixture(autouse=True)
 def mock_query_cache():
-    """Keep unit tests off Redis, Postgres vector cache, and embedding APIs."""
+    """Keep unit tests off Redis, Postgres vector cache, embedding APIs, and pricing DB."""
     with patch("app.services.rag.query_engine.cache_service") as mock_cache, \
-         patch("app.services.rag.query_engine.reranker") as mock_reranker:
+         patch("app.services.rag.query_engine.reranker") as mock_reranker, \
+         patch("app.services.rag.query_engine.is_over_budget", return_value=False):
         mock_cache.get_cached_answer.return_value = None
         mock_reranker.rerank.side_effect = (
             lambda _question, documents: [(document, 1.0) for document in documents]
