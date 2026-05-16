@@ -78,4 +78,4 @@ Redis is used for L1 exact-match cache. The app works without it, falling back t
 - Docker: included in `docker-compose.yml`
 - Local Windows: download from [github.com/tporadowski/redis/releases](https://github.com/tporadowski/redis/releases)
 - Local Linux/macOS: `apt install redis` or `brew install redis`
-- `.env`: `REDIS_URL=redis://localhost:6379/0`
+- `.env`: set `REDIS_PASSWORD`, then use `REDIS_URL=redis://:<same-password>@localhost:6379/0`

@@ -79,7 +79,8 @@ Edit `.env`:
 JWT_SECRET_KEY=<generated-secret>
 ENCRYPTION_KEY=<generated-32-byte-base64-key>
 DATABASE_URL=postgresql://<user>:<password>@<host>:5432/<database>
-REDIS_URL=redis://localhost:6379/0
+REDIS_PASSWORD=<same value used by Redis>
+REDIS_URL=redis://:<same value used by Redis>@localhost:6379/0
 ```
 
 Backend:

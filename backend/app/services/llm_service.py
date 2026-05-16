@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 import logging
+import warnings
 from typing import Dict, List, Optional
 
 from langchain_core.messages import HumanMessage
+warnings.filterwarnings(
+    "ignore",
+    category=FutureWarning,
+    module=r"langchain_google_genai\.chat_models",
+)
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_anthropic import ChatAnthropic
 

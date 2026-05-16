@@ -6,6 +6,36 @@ const apiClient = axios.create({
     headers: {},
 });
 
+let refreshPromise: Promise<unknown> | null = null;
+
+apiClient.interceptors.response.use(
+    (response) => response,
+    async (error) => {
+        if (!axios.isAxiosError(error) || error.response?.status !== 401 || !error.config) {
+            return Promise.reject(error);
+        }
+
+        const originalRequest = error.config;
+        const requestUrl = String(originalRequest.url || '');
+        if (
+            (originalRequest as { _retry?: boolean })._retry ||
+            requestUrl.includes('/v1/auth/login') ||
+            requestUrl.includes('/v1/auth/refresh')
+        ) {
+            return Promise.reject(error);
+        }
+
+        (originalRequest as { _retry?: boolean })._retry = true;
+        refreshPromise = refreshPromise || apiClient.post('/v1/auth/refresh');
+        try {
+            await refreshPromise;
+            return apiClient(originalRequest);
+        } finally {
+            refreshPromise = null;
+        }
+    },
+);
+
 export const getApiErrorMessage = (error: unknown, fallback: string) => {
     if (axios.isAxiosError(error)) {
         const detail = error.response?.data?.detail;

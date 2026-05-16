@@ -52,3 +52,12 @@ def test_create_admin_requires_admin_token(monkeypatch):
     )
 
     assert response.status_code == 401
+
+
+def test_refresh_token_cannot_be_used_as_access_token(monkeypatch):
+    monkeypatch.setattr(auth.settings, "JWT_SECRET_KEY", "test-secret")
+
+    refresh_token = auth.create_refresh_token({"sub": "alice", "role": "admin"})
+
+    assert auth.decode_access_token(refresh_token) is None
+    assert auth.decode_refresh_token(refresh_token).username == "alice"

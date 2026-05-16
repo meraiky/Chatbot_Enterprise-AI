@@ -65,7 +65,7 @@ services:
       dockerfile: Dockerfile
     container_name: aiagent_frontend
     ports:
-      - "3000:80"
+      - "127.0.0.1:3000:80"
     depends_on:
       - backend
 
