@@ -120,4 +120,4 @@ jobs:
         tags: chatbot-enterprise-frontend:test
 
     - name: Validate docker-compose
-      run: docker compose -f ./docker-compose.yml config
+      run: POSTGRES_PASSWORD=ci-test REDIS_PASSWORD=ci-test docker compose -f ./docker-compose.yml config
