@@ -62,14 +62,28 @@ def get_conn() -> Generator[psycopg2.extensions.connection, None, None]:
         pool.putconn(conn)
 
 
+def close_pool() -> None:
+    """Close all connections in the pool. Call this on application shutdown."""
+    global _pool
+    if _pool is not None:
+        logger.info("Closing database connection pool")
+        _pool.closeall()
+        _pool = None
+
+
 # ---------------------------------------------------------------------------
 # Schema bootstrap
 # ---------------------------------------------------------------------------
 
 def init_db() -> None:
-    """
-    Initialize database schema using Alembic migrations.
-    This replaces the old raw SQL DDL approach.
+    """Initialize database schema using Alembic migrations.
+    
+    CRITICAL FIX (C-3): Previously caught exceptions without re-raising, allowing the app
+    to start with broken schema. Now follows fail-fast principle: if migrations fail,
+    the app should not start.
+    
+    Raises:
+        RuntimeError: If migrations fail to apply
     """
     try:
         from alembic.config import Config
@@ -87,3 +101,4 @@ def init_db() -> None:
         logger.info("Database migrations applied successfully (upgraded to head).")
     except Exception as exc:
         logger.exception("Failed to run database migrations: %s", exc)
+        raise RuntimeError(f"Database migration failed: {exc}") from exc

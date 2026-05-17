@@ -6,7 +6,7 @@ import redis
 from fastapi import APIRouter, HTTPException, Depends, status, Request
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.auth import (
     create_access_token,
@@ -50,13 +50,41 @@ def _get_redis() -> redis.Redis | None:
     return _redis_client
 
 
+# Trusted proxy IPs - only these can set X-Real-IP/X-Forwarded-For headers
+# Add your reverse proxy IPs here (nginx, cloudflare, load balancer, etc.)
+TRUSTED_PROXIES = {
+    "127.0.0.1",
+    "::1",
+    # Add production proxy IPs when deploying, e.g.:
+    # "10.0.0.1",  # Internal load balancer
+    # "172.16.0.1",  # Nginx proxy
+}
+
+
 def _real_ip(request: Request) -> str:
-    """Return the true client IP, honouring X-Real-IP set by nginx."""
-    return (
-        request.headers.get("x-real-ip")
-        or request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-        or (request.client.host if request.client else "unknown")
-    )
+    """Return the true client IP, honouring X-Real-IP only from trusted proxies.
+    
+    Security: Only requests from TRUSTED_PROXIES can set X-Real-IP/X-Forwarded-For.
+    This prevents rate limit bypass via header injection attacks.
+    
+    See: https://adam-p.ca/blog/2022/03/x-forwarded-for/
+    """
+    client_ip = request.client.host if request.client else "unknown"
+    
+    # Only trust proxy headers if request comes from trusted proxy
+    if client_ip in TRUSTED_PROXIES:
+        # Try X-Real-IP first (set by nginx)
+        real_ip = request.headers.get("x-real-ip")
+        if real_ip:
+            return real_ip.strip()
+        
+        # Fallback to X-Forwarded-For (may contain chain of proxies)
+        forwarded = request.headers.get("x-forwarded-for", "")
+        if forwarded:
+            # Take first IP (original client)
+            return forwarded.split(",")[0].strip()
+    
+    return client_ip
 
 
 def _check_login_rate_limit(ip: str) -> None:
@@ -65,7 +93,7 @@ def _check_login_rate_limit(ip: str) -> None:
 
     if client is not None:
         try:
-            count = client.incr(key)
+            count: int = client.incr(key)  # type: ignore[assignment]  # redis-py incr() returns int at runtime
             if count == 1:
                 client.expire(key, LOGIN_RATE_LIMIT_WINDOW)
             if count > LOGIN_MAX_ATTEMPTS:
@@ -80,16 +108,23 @@ def _check_login_rate_limit(ip: str) -> None:
             logger.warning("Redis login rate-limit check failed; falling back to in-process")
 
     now = time.time()
-    _login_attempts[ip] = [
-        t for t in _login_attempts.get(ip, [])
-        if now - t < LOGIN_RATE_LIMIT_WINDOW
-    ]
-    if len(_login_attempts[ip]) >= LOGIN_MAX_ATTEMPTS:
+    # H-4 fix: Prune expired timestamps for this IP and delete empty buckets
+    recent = [t for t in _login_attempts.get(ip, []) if now - t < LOGIN_RATE_LIMIT_WINDOW]
+    if len(recent) >= LOGIN_MAX_ATTEMPTS:
+        # Keep stale entry so repeated blocked requests don't reset the window
+        _login_attempts[ip] = recent
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=f"Too many login attempts. Please try again in {LOGIN_RATE_LIMIT_WINDOW // 60} minutes.",
         )
-    _login_attempts[ip].append(now)
+    recent.append(now)
+    _login_attempts[ip] = recent
+    # H-4 fix: Periodically prune IPs that have no recent attempts (prevent unbounded growth)
+    if len(_login_attempts) > 10_000:
+        cutoff = now - LOGIN_RATE_LIMIT_WINDOW
+        stale_ips = [k for k, v in _login_attempts.items() if not v or max(v) < cutoff]
+        for stale in stale_ips:
+            del _login_attempts[stale]
 
 
 def _is_dev_environment() -> bool:
@@ -206,8 +241,7 @@ async def refresh_session(request: Request):
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Rotate refresh token: revoke the old refresh token before issuing a new pair.
-    revoke_access_token(refresh_token)
+    # Create new tokens FIRST to avoid losing session if token creation fails
     payload = _token_payload(
         username=token_data.username or "",
         role=token_data.role or "",
@@ -216,6 +250,14 @@ async def refresh_session(request: Request):
     )
     access_token = create_access_token(payload)
     new_refresh_token = create_refresh_token(payload)
+    
+    # Then revoke old refresh token (best-effort, don't fail if revocation fails)
+    if refresh_token:
+        try:
+            revoke_access_token(refresh_token)
+        except Exception:
+            logger.warning("Failed to revoke old refresh token during rotation")
+    
     response = JSONResponse(content={"access_token": access_token, "token_type": "bearer"})
     _set_auth_cookies(response, access_token, new_refresh_token)
     return response
@@ -252,7 +294,15 @@ class UserCreate(BaseModel):
     )
 
     username: str = Field(..., min_length=3, max_length=50, pattern=r"^\w+$", description="Alphanumeric username")
-    password: str = Field(..., min_length=8, max_length=128, description="Password must be at least 8 characters long")
+    password: str = Field(..., min_length=8, max_length=72, description="Password must be at least 8 characters long")
+
+    @field_validator('password')
+    @classmethod
+    def password_byte_limit(cls, v: str) -> str:
+        """R4-1 fix: Enforce 72-byte limit at API layer to return HTTP 422 instead of 500."""
+        if len(v.encode('utf-8')) > 72:
+            raise ValueError("Password must be at most 72 bytes when encoded as UTF-8")
+        return v
 
 @router.post(
     "/create-admin",

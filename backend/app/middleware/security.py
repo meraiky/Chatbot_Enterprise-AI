@@ -48,7 +48,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             )
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-XSS-Protection"] = "1; mode=block"
+        # R7-2 fix: X-XSS-Protection removed — deprecated in Chrome 78+, Firefox, Edge.
+        # XSS mitigation is covered by the strict CSP (script-src 'self') above.
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
 

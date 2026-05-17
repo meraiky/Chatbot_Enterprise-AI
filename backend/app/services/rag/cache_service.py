@@ -58,9 +58,14 @@ class PostgresCacheService:
             return {"available": False, "status": "error", "error": str(exc)}
 
     def _generate_cache_key(self, question: str, mode: str) -> str:
-        """Generate a deterministic cache key from question + mode."""
-        content = f"{mode}:{question.strip().lower()}"
-        return f"qa_cache:{hashlib.sha256(content.encode()).hexdigest()}"
+        """H-2 fix: Encode mode into cache key so clear_cache_by_mode can scan efficiently.
+
+        Key format:  qa_cache:{mode}:{sha256(question)}
+        This lets the Redis SCAN pattern be  qa_cache:{mode}:*  rather than
+        scanning all qa_cache:* keys and loading JSON to filter by mode.
+        """
+        q_hash = hashlib.sha256(question.strip().lower().encode()).hexdigest()
+        return f"qa_cache:{mode}:{q_hash}"
 
     # ------------------------------------------------------------------
     # Read
@@ -278,22 +283,21 @@ class PostgresCacheService:
             return 0
 
     def clear_cache_by_mode(self, mode: str) -> int:
-        """Delete rows from qa_cache for a specific mode (both L1 and L2)."""
-        # Note: Redis L1 uses hash keys, so we can't efficiently filter by mode
-        # We'll clear all Redis entries and let them repopulate naturally
+        """H-2 fix: Delete Redis L1 entries only for the specified mode using mode-scoped key pattern."""
         if self._redis_client:
             try:
                 cursor = 0
                 deleted = 0
                 while True:
-                    cursor, keys = self._redis_client.scan(cursor, match="qa_cache:*", count=100)
+                    # H-2 fix: pattern includes mode so only matching entries are deleted
+                    cursor, keys = self._redis_client.scan(cursor, match=f"qa_cache:{mode}:*", count=100)
                     if keys:
                         deleted += self._redis_client.delete(*keys)
                     if cursor == 0:
                         break
-                logger.info("Cleared %d Redis L1 cache entries (all modes)", deleted)
+                logger.info("Cleared %d Redis L1 cache entries for mode: %s", deleted, mode)
             except Exception as e:
-                logger.warning("Failed to clear Redis L1 cache: %s", e)
+                logger.warning("Failed to clear Redis L1 cache by mode: %s", e)
 
         # Clear PostgreSQL L2 for specific mode
         try:

@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
+import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1 import chat, document, usage, admin, auth, users
 from app.core.config import get_cors_origins, settings
@@ -9,6 +10,8 @@ from app.middleware.error_handler import setup_exception_handlers
 from app.middleware.security import setup_security_middleware
 from app.middleware.logging import LoggingMiddleware
 
+logger = logging.getLogger(__name__)
+
 _is_prod = settings.ENVIRONMENT == "production"
 
 
@@ -16,6 +19,9 @@ _is_prod = settings.ENVIRONMENT == "production"
 async def lifespan(app: FastAPI):
     _run_startup_checks()
     yield
+    # Cleanup on shutdown
+    from app.core.database import close_pool
+    close_pool()
 
 
 app = FastAPI(
@@ -118,7 +124,16 @@ def health():
 
 @app.get("/ready")
 def ready():
-    return {"status": "ready"}
+    """M-9 fix: Check DB connectivity before reporting ready."""
+    try:
+        from app.core.database import get_conn
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+        return {"status": "ready"}
+    except Exception as e:
+        logger.error(f"Readiness probe failed: {e}")
+        raise HTTPException(status_code=503, detail="Database not ready")
 
 app.include_router(chat.router, prefix="/api/v1/chat", tags=["Chat"])
 app.include_router(document.router, prefix="/api/v1/document", tags=["Document"])

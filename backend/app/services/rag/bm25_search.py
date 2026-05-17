@@ -19,8 +19,8 @@ from rank_bm25 import BM25Okapi
 
 logger = logging.getLogger(__name__)
 
-# Cache directory for BM25 indices
-CACHE_DIR = Path("data/bm25_cache")
+# N-5 fix: Anchor cache dir to this file's location, not the process cwd
+CACHE_DIR = Path(__file__).resolve().parents[3] / "data" / "bm25_cache"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -30,9 +30,13 @@ def tokenize(text: str) -> List[str]:
 
 
 def _compute_corpus_hash(corpus: List[str]) -> str:
-    """Compute a hash of the corpus to detect changes."""
-    content = "\n".join(sorted(corpus))
-    return hashlib.sha256(content.encode()).hexdigest()[:16]
+    """H-7 fix: Sort short per-doc hashes instead of full text — O(n log n) with small constants.
+
+    Sorting the full corpus strings is O(n * L * log n) where L is avg doc length.
+    Sorting 16-char hex digests is O(n * 16 * log n) ≈ O(n log n) with a tiny constant.
+    """
+    doc_hashes = sorted(hashlib.sha256(doc.encode()).hexdigest()[:16] for doc in corpus)
+    return hashlib.sha256("\n".join(doc_hashes).encode()).hexdigest()[:16]
 
 
 class BM25Searcher:
@@ -97,8 +101,17 @@ class BM25Searcher:
             return None
 
     def _save_to_cache(self) -> None:
-        """Save BM25 token cache to disk."""
+        """H-6 fix: Prune old cache files for this mode before writing the new one."""
         try:
+            # H-6 fix: Delete stale cache files for same mode to prevent unbounded growth
+            for old_file in CACHE_DIR.glob(f"bm25_{self.mode}_*.json"):
+                if old_file != self.cache_path:
+                    try:
+                        old_file.unlink()
+                        logger.info("Pruned stale BM25 cache: %s", old_file.name)
+                    except Exception as e:
+                        logger.warning("Failed to prune BM25 cache %s: %s", old_file.name, e)
+
             data = {
                 "corpus_hash": self.corpus_hash,
                 "mode": self.mode,

@@ -146,6 +146,7 @@ const ChatPage = () => {
                         updated[updated.length - 1] = {
                             ...updated[updated.length - 1],
                             sources: streamEvent.data.sources || [],
+                            sourceImages: streamEvent.data.source_images || [],
                             externalSources: streamEvent.data.external_sources || [],
                             sourceType: streamEvent.data.source_type,
                             webSearchOffered: streamEvent.data.web_search_offered || false,
@@ -368,6 +369,33 @@ const ChatPage = () => {
                                                     <FileText size={10} />
                                                     {src.source} {src.page ? `(p.${src.page})` : ''}
                                                 </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {msg.sourceImages && msg.sourceImages.length > 0 && (
+                                    <div className="mt-3 pt-3 border-t border-slate-200/50 space-y-2">
+                                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Related Images:</p>
+                                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                            {msg.sourceImages.map((image) => (
+                                                <a
+                                                    key={image.image_id}
+                                                    href={image.url}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="block overflow-hidden rounded-lg border border-slate-200 bg-white/70 hover:border-blue-300"
+                                                >
+                                                    <img
+                                                        src={image.url}
+                                                        alt={`${image.source || 'Source image'}${image.page ? ` page ${image.page}` : ''}`}
+                                                        className="h-40 w-full bg-white object-contain"
+                                                        loading="lazy"
+                                                    />
+                                                    <div className="border-t border-slate-100 px-2 py-1 text-[11px] text-slate-600">
+                                                        {image.source || 'PDF image'} {image.page ? `(p.${image.page})` : ''}
+                                                    </div>
+                                                </a>
                                             ))}
                                         </div>
                                     </div>

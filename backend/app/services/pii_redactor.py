@@ -18,9 +18,12 @@ PII_PATTERNS = {
     "api_key_generic": r"\b(?:sk|pk|ak|api)[_\-][A-Za-z0-9]{20,}\b",
 }
 
+# W-6 fix: pre-compile regexes at module level for consistency with injection_scanner.py
+_COMPILED_PII = {k: re.compile(p) for k, p in PII_PATTERNS.items()}
+
 
 def redact(text: str) -> str:
     redacted = text or ""
-    for pii_type, pattern in PII_PATTERNS.items():
-        redacted = re.sub(pattern, f"[{pii_type.upper()}_REDACTED]", redacted)
+    for pii_type, compiled in _COMPILED_PII.items():
+        redacted = compiled.sub(f"[{pii_type.upper()}_REDACTED]", redacted)
     return redacted

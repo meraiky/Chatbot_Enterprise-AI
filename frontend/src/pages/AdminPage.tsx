@@ -132,21 +132,9 @@ const AdminPage = ({ currentUser }: { currentUser: CurrentUser | null }) => {
         }
     }, [currentUser]);
 
-    const fetchData = async () => {
-        setLoading(true);
-        setError(null);
-        try {
-            const [docsRes, guardsRes, statsRes] = await Promise.all([
-                apiClient.get('/v1/document'),
-                apiClient.get('/v1/admin/topic-guards'),
-                apiClient.get('/v1/admin/qa-cache/stats'),
-            ]);
-            const documents = docsRes.data.documents as DocumentItem[];
-            setDocs(documents);
-            setGuards(guardsRes.data.guards);
-            setStats(statsRes.data);
-
-            const jobEntries = await Promise.all(
+    const fetchDocumentMetadata = async (documents: DocumentItem[]) => {
+        const [jobEntries, imageEntries] = await Promise.all([
+            Promise.all(
                 documents.map(async (doc) => {
                     try {
                         const response = await apiClient.get(`/v1/document/ingestion/${doc.doc_id}`);
@@ -155,12 +143,8 @@ const AdminPage = ({ currentUser }: { currentUser: CurrentUser | null }) => {
                         return null;
                     }
                 })
-            );
-            setIngestionJobs(
-                Object.fromEntries(jobEntries.filter((entry): entry is readonly [string, IngestionJob] => Boolean(entry)))
-            );
-
-            const imageEntries = await Promise.all(
+            ),
+            Promise.all(
                 documents.map(async (doc) => {
                     try {
                         const response = await apiClient.get(`/v1/document/${doc.doc_id}/images`);
@@ -169,15 +153,35 @@ const AdminPage = ({ currentUser }: { currentUser: CurrentUser | null }) => {
                         return [doc.doc_id, []] as const;
                     }
                 })
-            );
-            setDocumentImages(Object.fromEntries(imageEntries));
+            ),
+        ]);
 
-            const [usageSummaryRes, usageRecordsRes] = await Promise.all([
+        setIngestionJobs(
+            Object.fromEntries(jobEntries.filter((entry): entry is readonly [string, IngestionJob] => Boolean(entry)))
+        );
+        setDocumentImages(Object.fromEntries(imageEntries));
+    };
+
+    const fetchData = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const [docsRes, guardsRes, statsRes, usageSummaryRes, usageRecordsRes] = await Promise.all([
+                apiClient.get('/v1/document'),
+                apiClient.get('/v1/admin/topic-guards'),
+                apiClient.get('/v1/admin/qa-cache/stats'),
                 apiClient.get('/v1/usage/summary'),
                 apiClient.get('/v1/usage/records', { params: { limit: 25 } }),
             ]);
+            const documents = docsRes.data.documents as DocumentItem[];
+            setDocs(documents);
+            setGuards(guardsRes.data.guards);
+            setStats(statsRes.data);
             setTokenSummary(usageSummaryRes.data);
             setTokenRecords(usageRecordsRes.data.records);
+            setIngestionJobs({});
+            setDocumentImages({});
+            void fetchDocumentMetadata(documents);
         } catch (error: unknown) {
             console.error('Failed to fetch admin data', error);
             setError(getApiErrorMessage(error, 'Failed to load administration data. Please refresh the page.'));
@@ -497,7 +501,7 @@ const AdminPage = ({ currentUser }: { currentUser: CurrentUser | null }) => {
                                 <option value="External">External</option>
                                 <option value="Internal">Internal</option>
                             </select>
-                            <input type="file" name="file" accept=".pdf" required className="text-sm flex-1" />
+                            <input type="file" name="file" accept=".pdf,.doc,.docx,.csv,.xls,.xlsx" required className="text-sm flex-1" />
                             <button
                                 disabled={uploading}
                                 className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:bg-slate-300 flex items-center gap-2"

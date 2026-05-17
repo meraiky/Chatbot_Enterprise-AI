@@ -73,7 +73,7 @@ class HistoryMessage(BaseModel):
     )
 
     role: Literal["user", "assistant"]
-    content: str = Field(..., min_length=1, description="The content of the message")
+    content: str = Field(..., min_length=1, max_length=4000, description="The content of the message (max 4000 chars)")
 
 
 class ChatRequest(BaseModel):
@@ -94,7 +94,7 @@ class ChatRequest(BaseModel):
 
     question: str = Field(..., min_length=1, max_length=4000, description="The user's question or prompt")
     mode: Literal["Internal", "External"] = Field("Internal", description="Search mode: Internal for employees, External for public")
-    history: Optional[List[HistoryMessage]] = Field(default_factory=list, description="Previous conversation turns for context")
+    history: Optional[List[HistoryMessage]] = Field(default_factory=list, max_length=50, description="Previous conversation turns for context (max 50 messages)")
     conversation_id: Optional[str] = Field(None, description="Stable client conversation/session id")
 
     allow_web_search: bool = Field(False, description="Allow fallback to external web search when internal documents do not contain enough information")
@@ -121,7 +121,8 @@ def _get_rate_limit_client() -> redis.Redis | None:
 
 
 def _rate_limit_key(mode: str, question: str) -> str:
-    digest_input = f"{mode}:{question[:40].strip().lower()}"
+    """M-3 fix: Use full question in hash to avoid collision on same 40-char prefix."""
+    digest_input = f"{mode}:{question.strip().lower()}"
     digest = hashlib.sha256(digest_input.encode("utf-8")).hexdigest()
     return f"rate_limit:{digest}"
 
@@ -193,6 +194,15 @@ class ExternalSourceInfo(BaseModel):
     snippet: str
 
 
+class SourceImageInfo(BaseModel):
+    image_id: str
+    doc_id: Optional[str] = None
+    source: Optional[str] = None
+    page: Optional[int] = None
+    caption: Optional[str] = None
+    url: str
+
+
 class ChatResponse(BaseModel):
     """Standard response for non-streaming chat queries."""
     model_config = ConfigDict(
@@ -223,6 +233,7 @@ class ChatResponse(BaseModel):
 
     reply: str = Field(..., description="The AI generated answer")
     sources: List[SourceInfo] = Field(default_factory=list, description="List of internal documents used to generate the answer")
+    source_images: List[SourceImageInfo] = Field(default_factory=list, description="Relevant images extracted from source PDFs")
     external_sources: List[ExternalSourceInfo] = Field(default_factory=list, description="External web sources used to generate the answer")
     source_type: str = Field("internal", description="internal | external_web | hybrid | none")
     web_search_offered: bool = Field(False, description="Whether the assistant is asking user permission to search the web")
@@ -253,6 +264,9 @@ def send_message(
         result = answer_query(request.question, request.mode, history, conversation_id, user_id=current_user.user_id)
         result["usage"]["conversation_id"] = conversation_id
         return result
+    except ValueError as e:
+        # N-1: Prompt injection / budget exceeded → client error, not server error
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception("Failed to answer chat request")
         raise HTTPException(status_code=500, detail=_public_chat_error(e))
@@ -278,6 +292,9 @@ async def send_message_hybrid(
         )
         result["usage"]["conversation_id"] = conversation_id
         return result
+    except ValueError as e:
+        # N-1: Prompt injection / budget exceeded → client error, not server error
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception("Failed to answer hybrid chat request")
         raise HTTPException(status_code=500, detail=_public_chat_error(e))
@@ -318,6 +335,10 @@ async def send_message_hybrid_stream(
 
             if not yielded:
                 yield _sse("token", {"text": "Error: No response received from server."})
+        except ValueError as e:
+            # N-1: Prompt injection / budget exceeded → user-visible 400-class message
+            yield _sse("error", {"message": str(e), "code": 400})
+            yield _sse("done", {})
         except Exception as e:
             logger.exception("Failed to stream hybrid chat response")
             yield _sse("token", {"text": f"Error: {_public_chat_error(e)}"})
@@ -327,14 +348,16 @@ async def send_message_hybrid_stream(
 
 
 @router.post("/message/stream")
-async def send_message_stream(
+def send_message_stream(
     request: ChatRequest,
     current_user: TokenData = Depends(get_current_user)
 ):
     """
     Send a chat message and receive a streaming response via Server-Sent Events (SSE).
-    
+
     Ideal for long responses to improve perceived latency.
+    Declared as `def` (not `async def`) so FastAPI runs it in a threadpool — correct for
+    a sync generator that makes blocking LLM calls (H-3 fix).
     """
     _rate_limit_check(request.mode, request.question)
     history = [m.model_dump() for m in (request.history or [])]
@@ -359,6 +382,10 @@ async def send_message_stream(
 
             if not yielded:
                 yield _sse("token", {"text": "Error: No response received from server."})
+        except ValueError as e:
+            # N-1: Prompt injection / budget exceeded → user-visible 400-class message
+            yield _sse("error", {"message": str(e), "code": 400})
+            yield _sse("done", {})
         except Exception as e:
             logger.exception("Failed to stream chat response")
             yield _sse("token", {"text": f"Error: {_public_chat_error(e)}"})

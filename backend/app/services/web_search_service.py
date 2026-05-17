@@ -6,12 +6,13 @@ from typing import List, Dict, Optional, Tuple
 import hashlib
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 import httpx
 
 from app.core.database import get_conn
 from app.services.llm_service import get_llm
+from app.services.rag.injection_scanner import scan_chunk
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +54,8 @@ class DuckDuckGoProvider(WebSearchProvider):
                 with DDGS() as ddgs:
                     return list(ddgs.text(query, max_results=num_results))
 
-            # Run sync DDGS in thread pool to not block event loop
-            loop = asyncio.get_event_loop()
+            # W-4 fix: use get_running_loop() (safe in async context, no deprecation warning)
+            loop = asyncio.get_running_loop()
             raw_results = await loop.run_in_executor(None, _ddg_search)
 
             results = []
@@ -236,7 +237,20 @@ class WebSearchService:
         if ttl_days is None:
             ttl_days = self.default_ttl_days
 
-        query_hash = hashlib.sha256(query.encode()).hexdigest()
+        # W-2 fix: scan web search query for prompt injection before LLM synthesis
+        scan_result = scan_chunk(query)
+        if not scan_result["clean"]:
+            logger.warning(f"Web search query blocked by injection scanner: {query[:80]}")
+            return {
+                "cached": False,
+                "results": [],
+                "answer": "Your query was blocked because it contains patterns that resemble prompt injection.",
+                "sources": [],
+            }
+
+        # W-1 fix: include user_id in cache key so per-user LLM configs don't cross-pollinate
+        cache_seed = f"{query}:user={user_id or 'anon'}"
+        query_hash = hashlib.sha256(cache_seed.encode()).hexdigest()
 
         # Check cache first (unless force_refresh)
         if not force_refresh:
@@ -441,7 +455,7 @@ Answer:"""
                         json.dumps(results),
                         answer,
                         json.dumps(sources),
-                        datetime.now() + timedelta(days=ttl_days)
+                        datetime.now(timezone.utc) + timedelta(days=ttl_days)
                     ))
 
         except Exception as e:

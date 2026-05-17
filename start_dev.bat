@@ -13,15 +13,15 @@ start "ChatbotEnterprise-Backend" cmd /k "cd /d %~dp0backend && .venv\Scripts\py
 echo Waiting 5 seconds for backend to initialize...
 timeout /t 5 /nobreak >nul
 
-echo [2/2] Starting Frontend on port 5173...
-start "ChatbotEnterprise-Frontend" cmd /k "cd /d %~dp0frontend && npm run dev"
+echo [2/2] Starting Frontend on port 3000...
+start "ChatbotEnterprise-Frontend" cmd /k "cd /d %~dp0frontend && npm run dev -- --port 3000 --strictPort"
 
 echo.
 echo ========================================
 echo Services Started
 echo ========================================
 echo Backend API:  http://localhost:8000/docs
-echo Frontend UI:  http://localhost:5173
+echo Frontend UI:  http://localhost:3000
 echo.
 echo After seed (make seed): admin / admin1234
 echo ========================================

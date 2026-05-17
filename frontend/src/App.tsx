@@ -13,8 +13,15 @@ export interface CurrentUser {
     can_manage_models: boolean;
 }
 
+type AppView = 'chat' | 'admin' | 'settings';
+
 function App() {
-    const [view, setView] = useState<'chat' | 'admin' | 'settings'>('chat');
+    const [view, setView] = useState<AppView>('chat');
+    const [visitedViews, setVisitedViews] = useState<Record<AppView, boolean>>({
+        chat: true,
+        admin: false,
+        settings: false,
+    });
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
@@ -24,6 +31,13 @@ function App() {
     const { mode, setMode } = useChatStore();
 
     const isAuthenticated = Boolean(currentUser);
+
+    const showView = (nextView: AppView) => {
+        setView(nextView);
+        setVisitedViews((prev) => (
+            prev[nextView] ? prev : { ...prev, [nextView]: true }
+        ));
+    };
 
     // Restore session from existing httpOnly cookie on page load
     useEffect(() => {
@@ -63,6 +77,7 @@ function App() {
         }
         setCurrentUser(null);
         setView('chat');
+        setVisitedViews({ chat: true, admin: false, settings: false });
     };
 
     // Don't render until we know auth state (avoids flash of login form)
@@ -87,15 +102,15 @@ function App() {
 
                 <nav className="flex-1 px-4 space-y-2">
                     <button
-                        onClick={() => setView('chat')}
+                        onClick={() => showView('chat')}
                         className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'chat' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                     >
                         <MessageSquare size={20} />
                         Chat Assistant
                     </button>
-                    {isAuthenticated && (
+                    {isAuthenticated && currentUser?.role === 'admin' && (
                         <button
-                            onClick={() => setView('admin')}
+                            onClick={() => showView('admin')}
                             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'admin' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                         >
                             <LayoutDashboard size={20} />
@@ -104,7 +119,7 @@ function App() {
                     )}
                     {isAuthenticated && (
                         <button
-                            onClick={() => setView('settings')}
+                            onClick={() => showView('settings')}
                             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'settings' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                         >
                             <Settings size={20} />
@@ -183,12 +198,18 @@ function App() {
 
                 <div className="flex-1 overflow-auto p-6">
                     <ErrorBoundary>
-                        {view === 'chat' ? (
+                        <section className={view === 'chat' ? 'h-full' : 'hidden'}>
                             <ChatPage />
-                        ) : view === 'admin' ? (
-                            <AdminPage currentUser={currentUser} />
-                        ) : (
-                            <UserSettingsPage />
+                        </section>
+                        {isAuthenticated && currentUser?.role === 'admin' && visitedViews.admin && (
+                            <section className={view === 'admin' ? 'h-full' : 'hidden'}>
+                                <AdminPage currentUser={currentUser} />
+                            </section>
+                        )}
+                        {isAuthenticated && visitedViews.settings && (
+                            <section className={view === 'settings' ? 'h-full' : 'hidden'}>
+                                <UserSettingsPage />
+                            </section>
                         )}
                     </ErrorBoundary>
                 </div>

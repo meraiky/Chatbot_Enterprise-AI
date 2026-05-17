@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
 from uuid import uuid4
 
 import bcrypt
@@ -37,6 +37,9 @@ class TokenData(BaseModel):
 # Logic
 # ---------------------------------------------------------------------------
 
+# M-2 fix: Maximum password bytes bcrypt will accept without silent truncation
+_BCRYPT_MAX_BYTES = 72
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a plain password against a hashed password using bcrypt."""
     password_bytes = plain_password.encode('utf-8')
@@ -44,9 +47,18 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return bcrypt.checkpw(password_bytes, hashed_bytes)
 
 def get_password_hash(password: str) -> str:
-    """Hash a password using bcrypt with cost factor 12. Automatically truncates to 72 bytes."""
-    # Bcrypt has a 72-byte limit, truncate password if needed
-    password_bytes = password.encode('utf-8')[:72]
+    """Hash a password using bcrypt with cost factor 12.
+
+    M-2 fix: Callers must enforce the 72-byte limit at the API layer (see
+    validate_password_length below). We no longer silently truncate here so
+    the hash accurately reflects what the user typed.
+    """
+    password_bytes = password.encode('utf-8')
+    if len(password_bytes) > _BCRYPT_MAX_BYTES:
+        raise ValueError(
+            f"Password must be at most {_BCRYPT_MAX_BYTES} bytes when UTF-8 encoded "
+            f"({len(password_bytes)} bytes given). Use a shorter password."
+        )
     salt = bcrypt.gensalt(rounds=12)  # Cost factor 12 as per SECURITY.md
     hashed = bcrypt.hashpw(password_bytes, salt)
     return hashed.decode('utf-8')
@@ -82,9 +94,44 @@ def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None):
     )
 
 
+# N-4: Redis client for revocation cache — avoids a DB round-trip on every request.
+_revocation_redis: Optional[Any] = None
+
+def _get_revocation_redis() -> Optional[Any]:
+    global _revocation_redis
+    if _revocation_redis is not None:
+        return _revocation_redis
+    try:
+        import redis as _redis
+        client = _redis.from_url(
+            settings.REDIS_URL,
+            decode_responses=True,
+            socket_connect_timeout=1,
+            socket_timeout=1,
+        )
+        client.ping()
+        _revocation_redis = client
+    except Exception:
+        _revocation_redis = None
+    return _revocation_redis
+
+
 def _is_token_revoked(jti: str | None) -> bool:
     if not jti or not settings.DATABASE_URL:
         return False
+
+    # N-4 fix: Check Redis first — fast O(1) lookup, avoids DB per request.
+    redis_client = _get_revocation_redis()
+    if redis_client is not None:
+        try:
+            if redis_client.get(f"revoked:{jti}") is not None:
+                return True
+            # Negative result: key absent means not revoked (trust Redis until TTL).
+            # We only fall through to DB on Redis errors below.
+            return False
+        except Exception:
+            pass  # Fall through to DB on Redis errors
+
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
@@ -106,9 +153,10 @@ def revoke_access_token(token: str) -> bool:
         return False
 
     jti = payload.get("jti")
-    expires_at = datetime.fromtimestamp(payload.get("exp"), tz=timezone.utc)
-    if not jti:
+    exp = payload.get("exp")
+    if not jti or not exp:
         return False
+    expires_at = datetime.fromtimestamp(float(exp), tz=timezone.utc)
 
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -120,6 +168,16 @@ def revoke_access_token(token: str) -> bool:
                 """,
                 (jti, expires_at),
             )
+
+    # N-4 fix: Populate Redis revocation cache so subsequent checks avoid DB.
+    redis_client = _get_revocation_redis()
+    if redis_client is not None:
+        try:
+            ttl = max(1, int((expires_at - datetime.now(timezone.utc)).total_seconds()))
+            redis_client.setex(f"revoked:{jti}", ttl, "1")
+        except Exception:
+            pass  # Non-fatal — DB is the source of truth
+
     return True
 
 

@@ -16,10 +16,20 @@ export interface ExternalSourceInfo {
     snippet?: string;
 }
 
+export interface SourceImageInfo {
+    image_id: string;
+    doc_id?: string;
+    source?: string;
+    page?: number;
+    caption?: string | null;
+    url: string;
+}
+
 export interface Message {
     role: 'user' | 'assistant';
     content: string;
     sources?: SourceInfo[];
+    sourceImages?: SourceImageInfo[];
     externalSources?: ExternalSourceInfo[];
     sourceType?: 'internal' | 'external_web' | 'hybrid' | 'none';
     webSearchOffered?: boolean;

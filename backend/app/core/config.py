@@ -24,7 +24,8 @@ class Settings(BaseSettings):
     # Vendor-independent local embeddings (768 dims, no API key required)
     EMBEDDING_MODEL: str = "sentence-transformers/all-mpnet-base-v2"
     DOCUMENT_STORAGE_DIR: str = "./storage/documents"
-    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173,http://localhost:8501,http://127.0.0.1:8501"
+    # R7-3 fix: Removed stale Streamlit origins (8501). Credentials belong in REDIS_URL, not REDIS_PASSWORD.
+    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
     RETRIEVAL_TOP_K: int = 5
     RETRIEVAL_CANDIDATES_K: int = 10
     FINAL_CONTEXT_K: int = 3
@@ -53,8 +54,9 @@ class Settings(BaseSettings):
 
     # Railway PostgreSQL — auto-injected by Railway, or set manually in .env
     DATABASE_URL: str = ""
+    # R7-1 fix: REDIS_PASSWORD was silently ignored — all four Redis clients use REDIS_URL only.
+    # Embed credentials directly in REDIS_URL: redis://:password@host:6379/0
     REDIS_URL: str = "redis://localhost:6379/0"
-    REDIS_PASSWORD: str = ""
     APP_HOST: str = "127.0.0.1"
     APP_PORT: int = 8000
     ENABLE_HSTS: bool = False

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useModelConfigStore, Provider, ModelConfig, RoutingStrategy, ModelTestResult } from '../stores/modelConfigStore';
 
 export default function ModelConfigPanel() {
@@ -8,6 +8,10 @@ export default function ModelConfigPanel() {
     const [editingModel, setEditingModel] = useState<ModelConfig | null>(null);
     const [apiKeyInput, setApiKeyInput] = useState<{ modelId: number; value: string } | null>(null);
     const [testStatus, setTestStatus] = useState<{ modelId: number; loading: boolean; result: ModelTestResult | null; error: string | null } | null>(null);
+
+    useEffect(() => {
+        void fetchModels();
+    }, [fetchModels]);
 
     // Form state for new/edit model
     const [formData, setFormData] = useState({

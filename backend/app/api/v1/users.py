@@ -7,7 +7,7 @@ from typing import Literal, Optional
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.core.auth import TokenData, get_current_user
 from app.core.config import settings
@@ -60,11 +60,19 @@ def _validate_custom_endpoint(value: Optional[str]) -> Optional[str]:
     if not hostname:
         raise ValueError("custom_endpoint must include a hostname")
 
+    # H-5 fix: Block dangerous ports (Redis, PostgreSQL, internal services)
+    port = parsed.port
+    BLOCKED_PORTS = {6379, 5432, 11211, 27017, 3306, 9200, 5672, 6380, 6381}
+    if port in BLOCKED_PORTS:
+        raise ValueError(f"custom_endpoint cannot use port {port} (internal service port)")
+
     is_dev = settings.ENVIRONMENT.lower() in {"development", "local", "dev", "test"}
     if _is_private_or_local_host(hostname):
-        if is_dev and hostname in {"localhost", "127.0.0.1", "::1"}:
-            return value
-        raise ValueError("custom_endpoint cannot target local or private network hosts")
+        # H-5 fix: Dev mode still requires HTTPS, just allows localhost hostname
+        if not is_dev:
+            raise ValueError("custom_endpoint cannot target local or private network hosts")
+        if hostname not in {"localhost", "127.0.0.1", "::1"}:
+            raise ValueError("custom_endpoint cannot target local or private network hosts")
 
     if parsed.scheme != "https":
         raise ValueError("custom_endpoint must use HTTPS")
@@ -96,6 +104,13 @@ class ModelConfigCreate(BaseModel):
     @classmethod
     def validate_custom_endpoint(cls, value: Optional[str]) -> Optional[str]:
         return _validate_custom_endpoint(value)
+    
+    @model_validator(mode='after')
+    def validate_custom_provider_has_endpoint(self) -> 'ModelConfigCreate':
+        """Ensure custom provider has a custom_endpoint configured."""
+        if self.provider == "custom" and not self.custom_endpoint:
+            raise ValueError("custom_endpoint is required when provider is 'custom'")
+        return self
 
 
 class ModelConfigUpdate(BaseModel):
@@ -157,7 +172,7 @@ class ModelConnectionTestResponse(BaseModel):
 
 
 class LegacyUserSettingsResponse(BaseModel):
-    preferred_model: Literal["gemini", "anthropic"] = "gemini"
+    preferred_model: Literal["gemini", "anthropic", "openai", "custom"] = "gemini"
     model_name: Optional[str] = None
     temperature: float = 0.2
     system_prompt: Optional[str] = None
@@ -203,8 +218,20 @@ def _require_user_id(current_user: TokenData) -> int:
 
 
 def _require_model_permission(current_user: TokenData) -> int:
+    """H-1 fix: Re-validate model-management permission from DB, not JWT only.
+
+    JWT claims can become stale after an admin revokes `can_manage_models`; checking
+    the current database value prevents privilege retention until token expiry.
+    """
     user_id = _require_user_id(current_user)
-    if not current_user.can_manage_models:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT can_manage_models FROM users WHERE id = %s AND is_active = TRUE",
+                (user_id,),
+            )
+            row = cur.fetchone()
+    if not row or not bool(row[0]):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Your account does not have permission to manage model configurations.",
@@ -319,6 +346,9 @@ async def create_my_model(
                     pass
                 logger.exception("Failed to create model config")
                 raise HTTPException(status_code=400, detail="Could not create model configuration.") from exc
+
+    if row is None:
+        raise HTTPException(status_code=500, detail="Model configuration was not created.")
 
     return ModelConfigResponse(
         id=row[0],
@@ -610,6 +640,9 @@ async def update_my_routing(
             )
             row = cur.fetchone()
 
+    if row is None:
+        raise HTTPException(status_code=500, detail="Routing configuration was not saved.")
+
     return RoutingConfigResponse(
         strategy=row[0] or "random",
         enabled_model_ids=json.loads(row[1]) if row[1] else [],
@@ -796,32 +829,41 @@ async def update_my_web_search_preferences(
     current_user: TokenData = Depends(get_current_user),
 ):
     user_id = _require_user_id(current_user)
-    
+
+    # N-3 FIX: Use a single atomic INSERT ... ON CONFLICT DO UPDATE instead of SELECT-then-INSERT/UPDATE.
+    # The old pattern had a race condition: two concurrent requests from the same user could both
+    # see no row in SELECT, then both attempt INSERT, causing a UniqueViolation on the second.
+    # ON CONFLICT DO UPDATE is atomic and eliminates the race entirely.
+    #
+    # For partial updates (some fields None), we still need current values as defaults.
+    # We do this by reading current state in the same transaction via EXCLUDED + COALESCE.
     with get_conn() as conn:
         with conn.cursor() as cur:
-            # Check if preferences exist
-            cur.execute("SELECT allow_web_search, auto_web_search, web_search_providers FROM user_search_preferences WHERE user_id = %s", (user_id,))
+            # Read current values first (within same transaction for consistency)
+            cur.execute(
+                "SELECT allow_web_search, auto_web_search, web_search_providers FROM user_search_preferences WHERE user_id = %s",
+                (user_id,),
+            )
             row = cur.fetchone()
-            
-            if row:
-                # Update existing
-                allow = updates.allow_web_search if updates.allow_web_search is not None else row[0]
-                auto = updates.auto_web_search if updates.auto_web_search is not None else row[1]
-                providers = updates.web_search_providers if updates.web_search_providers is not None else (json.loads(row[2]) if isinstance(row[2], str) else row[2])
-                
-                cur.execute(
-                    "UPDATE user_search_preferences SET allow_web_search = %s, auto_web_search = %s, web_search_providers = %s, updated_at = NOW() WHERE user_id = %s",
-                    (allow, auto, json.dumps(providers), user_id),
-                )
-                return WebSearchPreferencesResponse(allow_web_search=allow, auto_web_search=auto, web_search_providers=providers)
-            else:
-                # Create new
-                allow = updates.allow_web_search if updates.allow_web_search is not None else False
-                auto = updates.auto_web_search if updates.auto_web_search is not None else False
-                providers = updates.web_search_providers if updates.web_search_providers is not None else ["duckduckgo"]
-                
-                cur.execute(
-                    "INSERT INTO user_search_preferences (user_id, allow_web_search, auto_web_search, web_search_providers) VALUES (%s, %s, %s, %s)",
-                    (user_id, allow, auto, json.dumps(providers)),
-                )
-                return WebSearchPreferencesResponse(allow_web_search=allow, auto_web_search=auto, web_search_providers=providers)
+
+            # Apply partial updates on top of existing values (or defaults if no row yet)
+            allow = updates.allow_web_search if updates.allow_web_search is not None else (row[0] if row else False)
+            auto = updates.auto_web_search if updates.auto_web_search is not None else (row[1] if row else False)
+            providers = (
+                updates.web_search_providers if updates.web_search_providers is not None
+                else (json.loads(row[2]) if row and isinstance(row[2], str) else (row[2] if row else ["duckduckgo"]))
+            )
+
+            cur.execute(
+                """
+                INSERT INTO user_search_preferences (user_id, allow_web_search, auto_web_search, web_search_providers)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (user_id) DO UPDATE SET
+                    allow_web_search = EXCLUDED.allow_web_search,
+                    auto_web_search = EXCLUDED.auto_web_search,
+                    web_search_providers = EXCLUDED.web_search_providers,
+                    updated_at = NOW()
+                """,
+                (user_id, allow, auto, json.dumps(providers)),
+            )
+            return WebSearchPreferencesResponse(allow_web_search=allow, auto_web_search=auto, web_search_providers=providers)

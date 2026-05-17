@@ -7,10 +7,11 @@ from pathlib import Path as FilePath
 from typing import Literal, List, Dict, Any
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Path as PathParam
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 from app.core.auth import get_current_admin, TokenData
 
-from app.services.rag.data_ingestion import process_and_index_pdf
+from app.services.rag.data_ingestion import process_and_index_file
 from app.services.rag.document_registry import (
     build_document_id,
     delete_indexed_document,
@@ -20,6 +21,7 @@ from app.services.rag.document_mirror import rebuild_chroma_from_mirror
 from app.services.rag.document_images import (
     delete_document_images,
     extract_and_store_pdf_images,
+    get_document_image,
     list_document_images,
 )
 from app.services.rag.ingestion_jobs import (
@@ -46,7 +48,15 @@ def _public_upload_error(error: Exception) -> str:
         return "GEMINI_API_KEY is not configured in backend/.env."
     if "permission" in message and "chroma" in message:
         return "ChromaDB storage is not writable. Check backend/chroma_db permissions."
+    if "does not contain extractable text" in message:
+        return "Document does not contain extractable text. For scanned PDFs, upload an OCR/text PDF."
+    if "legacy .doc" in message or "legacy .xls" in message or "unsupported file type" in message:
+        return str(error)
     return "Failed to process document. Please check the file and try again."
+
+
+SUPPORTED_UPLOAD_EXTENSIONS = {".pdf", ".doc", ".docx", ".csv", ".xls", ".xlsx"}
+SUPPORTED_UPLOAD_LABEL = "PDF, DOCX, CSV, or XLSX"
 
 class DocumentInfo(BaseModel):
     """Information about an indexed document."""
@@ -266,6 +276,25 @@ async def document_images(
     return {"images": images}
 
 
+@router.get("/images/{image_id}/content")
+async def document_image_content(
+    image_id: str = PathParam(..., min_length=1),
+    current_user: TokenData = Depends(get_current_admin),
+):
+    """Return an extracted PDF image file for display next to relevant answers."""
+    image = get_document_image(image_id)
+    if not image:
+        raise HTTPException(status_code=404, detail="Document image was not found.")
+    storage_path = str(image.get("storage_path") or "")
+    if not storage_path or not os.path.exists(storage_path):
+        raise HTTPException(status_code=404, detail="Document image file was not found.")
+    return FileResponse(
+        storage_path,
+        media_type=str(image.get("content_type") or "application/octet-stream"),
+        filename=FilePath(storage_path).name,
+    )
+
+
 @router.post("/rebuild-vector-store", response_model=RebuildVectorStoreResponse)
 async def rebuild_vector_store(
     doc_id: str | None = None,
@@ -283,34 +312,32 @@ async def rebuild_vector_store(
 @router.post("/upload", response_model=UploadResponse)
 async def upload_document(
     doc_type: Literal["Internal", "External"] = Form(..., description="The target mode for the document"),
-    file: UploadFile = File(..., description="The PDF file to be indexed"),
+    file: UploadFile = File(..., description="The document file to be indexed"),
     current_user: TokenData = Depends(get_current_admin)
 ):
     """
-    Upload and index a PDF document into the RAG system.
+    Upload and index a document into the RAG system.
     
     The process includes:
-    1. PDF text extraction.
+    1. Text extraction from PDF, DOCX, CSV, or XLSX.
     2. Text splitting into chunks.
     3. Generating embeddings and storing them in the vector database.
     4. Invalidating the semantic cache for the specified mode.
     
     Security limits:
     - Max file size: 50MB (enforced by nginx)
-    - File extension: .pdf only
-    - MIME type: application/pdf only
+    - File extension: .pdf, .docx, .csv, .xlsx
+    - Legacy .doc/.xls receive a clear conversion error
     """
     MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
     
     source_name = FilePath(file.filename or "").name
-    if not source_name.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+    suffix = FilePath(source_name).suffix.lower()
+    if suffix not in SUPPORTED_UPLOAD_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"Only {SUPPORTED_UPLOAD_LABEL} files are supported.")
     
-    # Validate MIME type (client-supplied header — not trusted alone)
-    if file.content_type not in ["application/pdf", "application/x-pdf"]:
-        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
-
     temp_file_path = ""
+    doc_id: str | None = None  # M-4 fix: Declare before try block
     try:
         # Read file and validate size
         file.file.seek(0)
@@ -326,12 +353,15 @@ async def upload_document(
         if file_size == 0:
             raise HTTPException(status_code=400, detail="Empty file uploaded")
 
-        # Magic-byte check — verify actual content regardless of filename/Content-Type
-        if not content[:5] == b"%PDF-":
+        # M-8 fix: Magic-byte check for PDF, DOCX, XLSX
+        if suffix == ".pdf" and not content[:5] == b"%PDF-":
             raise HTTPException(status_code=400, detail="Invalid file: not a valid PDF.")
+        # DOCX/XLSX are ZIP files (PK\x03\x04 magic bytes)
+        if suffix in {".docx", ".xlsx"} and not content[:4] == b"PK\x03\x04":
+            raise HTTPException(status_code=400, detail=f"Invalid file: not a valid {suffix.upper()[1:]} file.")
         
         # Write to temp file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as buffer:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix or ".upload") as buffer:
             temp_file_path = buffer.name
             buffer.write(content)
 
@@ -353,21 +383,22 @@ async def upload_document(
             progress=20,
             progress_message="Source file saved; indexing document.",
         )
-        extracted_images = extract_and_store_pdf_images(
-            file_path=temp_file_path,
-            doc_id=doc_id,
-            source=source_name,
-            mode=doc_type,
-        )
-        if extracted_images:
-            update_ingestion_job(
+        if suffix == ".pdf":
+            extracted_images = extract_and_store_pdf_images(
+                file_path=temp_file_path,
                 doc_id=doc_id,
-                status="processing",
-                progress=35,
-                progress_message=f"Extracted {len(extracted_images)} image(s); indexing text.",
+                source=source_name,
+                mode=doc_type,
             )
+            if extracted_images:
+                update_ingestion_job(
+                    doc_id=doc_id,
+                    status="processing",
+                    progress=35,
+                    progress_message=f"Extracted {len(extracted_images)} image(s); indexing text.",
+                )
 
-        result = process_and_index_pdf(
+        result = process_and_index_file(
             temp_file_path,
             doc_type,
             source_name,
@@ -382,7 +413,8 @@ async def upload_document(
             replaced_chunks=result.get("replaced_chunks"),
         )
     except ValueError as e:
-        if "doc_id" in locals():
+        if doc_id is not None:  # M-4 fix: Use explicit None check
+            assert doc_id is not None  # Type narrowing for Pyrefly
             update_ingestion_job(
                 doc_id=doc_id,
                 status="failed",
@@ -393,7 +425,8 @@ async def upload_document(
         raise HTTPException(status_code=400, detail=_public_upload_error(e))
     except Exception as e:
         logger.exception("Failed to index uploaded document %s", source_name)
-        if "doc_id" in locals():
+        if doc_id is not None:  # M-4 fix: Use explicit None check
+            assert doc_id is not None  # Type narrowing for Pyrefly
             update_ingestion_job(
                 doc_id=doc_id,
                 status="failed",
@@ -431,6 +464,7 @@ async def reprocess_document(
     storage_path = job.get("storage_path")
     if not source_file_exists(storage_path):
         raise HTTPException(status_code=404, detail="Stored source file was not found.")
+    assert storage_path is not None  # Type narrowing for Pyrefly (already checked above)
 
     source_name = str(job.get("source") or "document.pdf")
     doc_type = str(job.get("mode") or "Internal")
@@ -443,20 +477,23 @@ async def reprocess_document(
             progress=20,
             progress_message="Re-indexing from stored source file.",
         )
-        extracted_images = extract_and_store_pdf_images(
-            file_path=storage_path,
-            doc_id=doc_id,
-            source=source_name,
-            mode=doc_type,
-        )
-        if extracted_images:
-            update_ingestion_job(
+        if FilePath(source_name).suffix.lower() == ".pdf":
+            assert storage_path is not None  # Type narrowing for Pyrefly
+            extracted_images = extract_and_store_pdf_images(
+                file_path=storage_path,
                 doc_id=doc_id,
-                status="processing",
-                progress=35,
-                progress_message=f"Extracted {len(extracted_images)} image(s); indexing text.",
+                source=source_name,
+                mode=doc_type,
             )
-        result = process_and_index_pdf(storage_path, doc_type, source_name, checksum)
+            if extracted_images:
+                update_ingestion_job(
+                    doc_id=doc_id,
+                    status="processing",
+                    progress=35,
+                    progress_message=f"Extracted {len(extracted_images)} image(s); indexing text.",
+                )
+        assert storage_path is not None  # Type narrowing for Pyrefly
+        result = process_and_index_file(storage_path, doc_type, source_name, checksum)
         update_ingestion_job(
             doc_id=doc_id,
             status="indexed",

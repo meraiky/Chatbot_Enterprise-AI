@@ -1,10 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Save, AlertCircle, CheckCircle, Globe, Search } from 'lucide-react';
 import { useUserStore } from '../stores/userStore';
-import { useModelConfigStore } from '../stores/modelConfigStore';
-import ModelConfigPanel from './ModelConfigPanel';
-
-type TabType = 'models' | 'web-search';
 
 export default function UserSettingsPage() {
     const {
@@ -14,9 +10,6 @@ export default function UserSettingsPage() {
         fetchWebSearchPreferences,
         updateWebSearchPreferences,
     } = useUserStore();
-    const { fetchModels } = useModelConfigStore();
-
-    const [activeTab, setActiveTab] = useState<TabType>('models');
 
     const [allowWebSearch, setAllowWebSearch] = useState(false);
     const [autoWebSearch, setAutoWebSearch] = useState(false);
@@ -25,9 +18,8 @@ export default function UserSettingsPage() {
     const [webSaveStatus, setWebSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
 
     useEffect(() => {
-        fetchModels();
         fetchWebSearchPreferences();
-    }, [fetchModels, fetchWebSearchPreferences]);
+    }, [fetchWebSearchPreferences]);
 
     useEffect(() => {
         if (webSearchPreferences) {
@@ -72,44 +64,8 @@ export default function UserSettingsPage() {
 
     return (
         <div className="max-w-6xl mx-auto">
-            <div className="bg-white rounded-t-lg shadow border-b border-slate-200">
-                <div className="flex gap-1 px-6 pt-4">
-                    <button
-                        onClick={() => setActiveTab('models')}
-                        className={`px-4 py-2 font-medium rounded-t-lg transition-colors ${activeTab === 'models'
-                            ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-600'
-                            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                            }`}
-                    >
-                        AI Models & Routing
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('web-search')}
-                        className={`px-4 py-2 font-medium rounded-t-lg transition-colors ${activeTab === 'web-search'
-                            ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-600'
-                            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                            }`}
-                    >
-                        Web Search
-                    </button>
-                </div>
-            </div>
-
-            <div className="bg-slate-50 rounded-b-lg shadow p-6">
-                {activeTab === 'models' && (
-                    <div>
-                        <div className="mb-4">
-                            <h2 className="text-2xl font-bold text-slate-900">AI Models & Routing Configuration</h2>
-                            <p className="text-sm text-slate-600 mt-1">
-                                Configure multiple AI models with API keys and set up routing strategies. The system will automatically select models based on your chosen strategy.
-                            </p>
-                        </div>
-                        <ModelConfigPanel />
-                    </div>
-                )}
-
-                {activeTab === 'web-search' && (
-                    <div className="space-y-6">
+            <div className="bg-slate-50 rounded-lg shadow p-6">
+                <div className="space-y-6">
                         <div className="bg-white rounded-lg shadow p-6">
                             <div className="flex items-start gap-3 mb-4">
                                 <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600">
@@ -231,8 +187,6 @@ export default function UserSettingsPage() {
                             </div>
                         </div>
                     </div>
-                )}
-
             </div>
         </div>
     );

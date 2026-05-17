@@ -17,6 +17,9 @@ from app.core.database import get_conn
 
 logger = logging.getLogger(__name__)
 
+# Module-level flag to ensure DDL runs only once per process
+_postgres_table_ready = False
+
 
 def estimate_tokens(text: str) -> int:
     return max(1, math.ceil(len(text) / 4)) if text else 0
@@ -63,6 +66,15 @@ def _connect_sqlite() -> sqlite3.Connection:
 
 
 def _ensure_postgres_table() -> None:
+    """Ensure token_usage table exists. Uses module-level flag to run DDL only once per process.
+    
+    CRITICAL FIX (C-1): Previously ran 6 DDL statements on EVERY record_usage() call.
+    Now runs only once per process lifetime using _postgres_table_ready flag.
+    """
+    global _postgres_table_ready
+    if _postgres_table_ready:
+        return
+    
     with get_conn() as connection:
         with connection.cursor() as cur:
             cur.execute(
@@ -85,7 +97,8 @@ def _ensure_postgres_table() -> None:
                 )
                 """
             )
-            cur.execute("ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS conversation_id TEXT")
+            # N-7: Removed ALTER TABLE here — schema migration belongs in Alembic (003_qa_cache_token_columns.py).
+            # Keeping duplicate DDL in application code creates confusion about the single source of truth.
             cur.execute(
                 "CREATE INDEX IF NOT EXISTS token_usage_created_at_idx ON token_usage (created_at)"
             )
@@ -98,6 +111,9 @@ def _ensure_postgres_table() -> None:
             cur.execute(
                 "CREATE INDEX IF NOT EXISTS token_usage_operation_idx ON token_usage (operation)"
             )
+    
+    _postgres_table_ready = True
+    logger.info("PostgreSQL token_usage table initialized (DDL executed once)")
 
 
 def _use_postgres() -> bool:

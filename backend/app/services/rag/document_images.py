@@ -14,14 +14,33 @@ from app.services.rag.source_storage import get_document_storage_dir
 
 MIN_IMAGE_BYTES = 2048
 
+# Module-level flag to ensure DDL runs only once per process
+_document_images_table_ready = False
+
 
 def _enabled() -> bool:
     return bool(settings.DATABASE_URL)
 
 
 def ensure_document_images_table() -> None:
-    if not _enabled():
+    """Ensure document_images table exists. Uses module-level flag to run DDL only once per process.
+    
+    CRITICAL FIX (C-2): Previously ran 3 DDL statements on EVERY image operation.
+    Now runs only once per process lifetime using _document_images_table_ready flag.
+    Migrations (007_document_images.py) already handle schema creation, so this is defensive only.
+    
+    N-6 FIX: Also sets flag to True when DATABASE_URL is not configured (DB disabled), so that
+    future calls don't repeatedly check _enabled() and return early without setting the flag.
+    """
+    global _document_images_table_ready
+    if _document_images_table_ready:
         return
+
+    if not _enabled():
+        # Mark as "ready" even when disabled — no DDL needed and no point rechecking
+        _document_images_table_ready = True
+        return
+    
     with get_conn() as connection:
         with connection.cursor() as cur:
             cur.execute(
@@ -45,6 +64,8 @@ def ensure_document_images_table() -> None:
             )
             cur.execute("CREATE INDEX IF NOT EXISTS document_images_doc_id_idx ON document_images (doc_id)")
             cur.execute("CREATE INDEX IF NOT EXISTS document_images_mode_idx ON document_images (mode)")
+    
+    _document_images_table_ready = True
 
 
 def _content_type(ext: str) -> str:
@@ -167,6 +188,26 @@ def list_document_images(doc_id: str) -> list[dict[str, Any]]:
                 (doc_id,),
             )
             return [dict(row) for row in cur.fetchall()]
+
+
+def get_document_image(image_id: str) -> dict[str, Any] | None:
+    if not _enabled():
+        return None
+    ensure_document_images_table()
+    with get_conn() as connection:
+        with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT image_id, doc_id, source, mode, page, image_index,
+                       storage_path, content_type, size_bytes, checksum,
+                       caption, created_at
+                FROM document_images
+                WHERE image_id = %s
+                """,
+                (image_id,),
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
 
 
 def delete_document_images(doc_id: str) -> int:

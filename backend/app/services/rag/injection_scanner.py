@@ -26,6 +26,13 @@ INJECTION_PATTERNS = [
     r"(?:tiet\s+lo|tiết\s+lộ|in\s+ra)\s+(?:system\s+prompt|prompt\s+he\s+thong|prompt\s+hệ\s+thống)",
 ]
 
+# N-2: Pre-compile all patterns once at module load — avoids re-compilation on every user query.
+# Python's re module has an internal cache, but explicit pre-compilation eliminates cache-lookup
+# overhead entirely, which matters since scan_chunk() is now called on every chat request.
+_COMPILED_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(p, re.IGNORECASE) for p in INJECTION_PATTERNS
+]
+
 
 def _normalize(text: str) -> str:
     text = (text or "").lower()
@@ -34,11 +41,12 @@ def _normalize(text: str) -> str:
 
 
 def scan_chunk(text: str) -> dict:
+    """Scan text for prompt-injection patterns. Uses pre-compiled regexes (N-2)."""
     normalized = _normalize(text)
     findings = [
-        pattern
-        for pattern in INJECTION_PATTERNS
-        if re.search(pattern, normalized, flags=re.IGNORECASE)
+        p.pattern
+        for p in _COMPILED_PATTERNS
+        if p.search(normalized)
     ]
     return {
         "clean": not findings,
@@ -48,12 +56,8 @@ def scan_chunk(text: str) -> dict:
 
 
 def sanitize_chunk(text: str) -> str:
+    """Sanitize text by redacting injection patterns. Uses pre-compiled regexes (N-2)."""
     sanitized = text or ""
-    for pattern in INJECTION_PATTERNS:
-        sanitized = re.sub(
-            pattern,
-            "[REDACTED_INSTRUCTION]",
-            sanitized,
-            flags=re.IGNORECASE,
-        )
+    for compiled in _COMPILED_PATTERNS:
+        sanitized = compiled.sub("[REDACTED_INSTRUCTION]", sanitized)
     return sanitized

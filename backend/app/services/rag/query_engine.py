@@ -20,10 +20,12 @@ from app.services.usage_tracker import (
 )
 from app.services.chat_audit_service import record_chat_audit
 from app.services.rag.cache_service import cache_service
+from app.services.rag.document_images import list_document_images
 from app.services.topic_guard_service import check_topic_guard
 from app.core.observability import trace_span
 from langchain_core.prompts import ChatPromptTemplate
 from app.services.pricing_service import is_over_budget
+from app.services.rag.injection_scanner import scan_chunk
 
 
 NO_CONTEXT_ANSWER = (
@@ -101,6 +103,27 @@ _DEFAULT_SYSTEM_PROMPT = (
 
 def _search_filter(mode: str) -> dict[str, str]:
     return {"type": mode}
+
+
+def _check_prompt_injection(question: str) -> None:
+    """Scan user query for prompt injection attempts.
+    
+    CRITICAL FIX (C-4): Previously no scanning of user queries before LLM injection.
+    Now scans every query and raises ValueError if injection patterns detected.
+    
+    Raises:
+        ValueError: If prompt injection patterns are detected in the query
+    """
+    scan_result = scan_chunk(question)
+    if not scan_result["clean"]:
+        logger.warning(
+            "Prompt injection detected in user query. Findings: %s",
+            scan_result["findings"]
+        )
+        raise ValueError(
+            "Your query contains patterns that may be attempting to manipulate the system. "
+            "Please rephrase your question."
+        )
 
 
 def _normalize_for_intent(text: str) -> str:
@@ -201,7 +224,7 @@ def _rrf_fuse_results(
     add_ranked(vector_results)
     add_ranked(bm25_docs)
 
-    ranked_keys = sorted(fused_scores, key=fused_scores.get, reverse=True)[:limit]
+    ranked_keys = sorted(fused_scores, key=fused_scores.get, reverse=True)[:limit]  # type: ignore[arg-type]
     return [(docs_by_key[key], fused_scores[key]) for key in ranked_keys]
 
 
@@ -307,6 +330,38 @@ def retrieve_context(question: str, mode: str, request_id: str, conversation_id:
         total_chars += len(part)
 
     return "\n\n".join(context_parts), sources, retrieval_usage
+
+
+def _source_images(sources: list[dict] | None) -> list[dict[str, Any]]:
+    """Attach PDF images from the same document/page as retrieved source chunks."""
+    images: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for source in sources or []:
+        doc_id = str(source.get("doc_id") or "")
+        if not doc_id:
+            continue
+        source_page = source.get("page")
+        for image in list_document_images(doc_id):
+            image_page = image.get("page")
+            if source_page is not None and image_page is not None and image_page != source_page:
+                continue
+            image_id = str(image.get("image_id") or "")
+            if not image_id or image_id in seen:
+                continue
+            seen.add(image_id)
+            images.append(
+                {
+                    "image_id": image_id,
+                    "doc_id": image.get("doc_id"),
+                    "source": image.get("source"),
+                    "page": image_page,
+                    "caption": image.get("caption"),
+                    "url": f"/api/v1/document/images/{image_id}/content",
+                }
+            )
+            if len(images) >= 6:
+                return images
+    return images
 
 
 def _build_prompt(mode: str) -> ChatPromptTemplate:
@@ -434,9 +489,9 @@ def _record_audit_from_usage(
         question=question,
         answer=answer,
         sources=sources or [],
-        input_tokens=int(usage.get("input_tokens") or 0),
-        output_tokens=int(usage.get("output_tokens") or 0),
-        total_tokens=int(usage.get("total_tokens") or 0),
+        input_tokens=int(usage.get("input_tokens") or 0),  # type: ignore[arg-type]
+        output_tokens=int(usage.get("output_tokens") or 0),  # type: ignore[arg-type]
+        total_tokens=int(usage.get("total_tokens") or 0),  # type: ignore[arg-type]
         estimated=bool(usage.get("estimated", estimated)),
     )
 
@@ -452,6 +507,7 @@ def answer_query(
     conversation_id: str | None = None,
     user_id: int | None = None,
 ):
+    _check_prompt_injection(question)
     if is_over_budget(conversation_id):
         raise ValueError(f"Local cost budget of ${settings.LOCAL_COST_BUDGET} has been exceeded.")
 
@@ -563,6 +619,7 @@ def answer_query(
         return {
             "reply": reply,
             "sources": sources,
+            "source_images": _source_images(sources),
             "cache_hit": True,
             "usage": {
                 "request_id": request_id,
@@ -657,6 +714,7 @@ def answer_query(
     return {
         "reply": reply,
         "sources": sources,
+        "source_images": _source_images(sources),
         "cache_hit": False,
         "usage": {
             "request_id": request_id,
@@ -673,6 +731,7 @@ def answer_query_stream(
     conversation_id: str | None = None,
     user_id: int | None = None,
 ):
+    _check_prompt_injection(question)
     if is_over_budget(conversation_id):
         raise ValueError(f"Local cost budget of ${settings.LOCAL_COST_BUDGET} has been exceeded.")
         
@@ -839,6 +898,7 @@ def _stream_metadata(
     conversation_id: str | None,
     sources: list[dict] | None,
     usage_records: list[dict],
+    source_images: list[dict] | None = None,
     cache_hit: bool = False,
     blocked: bool = False,
     guardrail: dict[str, str] | None = None,
@@ -852,10 +912,11 @@ def _stream_metadata(
         "request_id": request_id,
         "conversation_id": conversation_id,
         "sources": sources or [],
+        "source_images": source_images if source_images is not None else _source_images(sources),
         "usage": {
-            "input_tokens": sum(int(record.get("input_tokens") or 0) for record in usage_records),
-            "output_tokens": sum(int(record.get("output_tokens") or 0) for record in usage_records),
-            "total_tokens": sum(int(record.get("total_tokens") or 0) for record in usage_records),
+            "input_tokens": _sum_tokens(usage_records, "input_tokens"),
+            "output_tokens": _sum_tokens(usage_records, "output_tokens"),
+            "total_tokens": _sum_tokens(usage_records, "total_tokens"),
             "cached": cache_hit,
             "estimated": any(bool(record.get("estimated")) for record in usage_records),
             "records": usage_records,
@@ -876,6 +937,11 @@ def _stream_metadata(
 
 def _stream_done() -> dict[str, object]:
     return {"event": "done", "data": {}}
+
+
+def _sum_tokens(records: list[dict], key: str) -> int:
+    """Sum token counts from a list of usage records. Handles None/missing keys safely."""
+    return sum(int(r.get(key) or 0) for r in records)
 
 
 def _web_search_offer(question: str) -> tuple[str, str]:
@@ -909,6 +975,7 @@ async def answer_query_hybrid(
     user_id: int | None = None,
     allow_web_search: bool = False,
 ):
+    _check_prompt_injection(question)
     request_id = new_request_id()
     history_text = _prepare_history(history)
     
@@ -999,6 +1066,7 @@ async def answer_query_hybrid(
         return {
             "reply": reply,
             "sources": sources,
+            "source_images": _source_images(sources),
             "external_sources": [],
             "source_type": "internal",
             "cache_hit": False,
@@ -1007,7 +1075,7 @@ async def answer_query_hybrid(
             "usage": {
                 "request_id": request_id,
                 "records": usage_records,
-                "total_tokens": sum(int(r.get("total_tokens") or 0) for r in usage_records),
+                "total_tokens": _sum_tokens(usage_records, "total_tokens"),
             },
         }
 
@@ -1026,7 +1094,7 @@ async def answer_query_hybrid(
             "usage": {
                 "request_id": request_id,
                 "records": usage_records,
-                "total_tokens": sum(int(r.get("total_tokens") or 0) for r in usage_records),
+                "total_tokens": _sum_tokens(usage_records, "total_tokens"),
             },
         }
 
@@ -1052,7 +1120,7 @@ async def answer_query_hybrid(
             "usage": {
                 "request_id": request_id,
                 "records": usage_records,
-                "total_tokens": sum(int(r.get("total_tokens") or 0) for r in usage_records),
+                "total_tokens": _sum_tokens(usage_records, "total_tokens"),
             },
         }
     except Exception as exc:
@@ -1069,7 +1137,7 @@ async def answer_query_hybrid(
             "usage": {
                 "request_id": request_id,
                 "records": usage_records,
-                "total_tokens": sum(int(r.get("total_tokens") or 0) for r in usage_records),
+                "total_tokens": _sum_tokens(usage_records, "total_tokens"),
             },
         }
 
@@ -1088,6 +1156,7 @@ async def answer_query_stream_events_hybrid(
     blocks until the full LLM answer is available. Internal-document answers must
     stream token-by-token from the selected user model/router.
     """
+    _check_prompt_injection(question)
     if is_over_budget(conversation_id):
         raise ValueError(f"Local cost budget of ${settings.LOCAL_COST_BUDGET} has been exceeded.")
 
@@ -1313,6 +1382,7 @@ def answer_query_stream_events(
     conversation_id: str | None = None,
     user_id: int | None = None,
 ):
+    _check_prompt_injection(question)
     request_id = new_request_id()
     history_text = _prepare_history(history)
 

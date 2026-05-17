@@ -70,16 +70,23 @@ class PgVectorStore:
             with conn.cursor() as cur:
                 for doc, emb, chunk_id in zip(documents, embeddings, ids):
                     m = doc.metadata
+                    doc_type = m.get("type") or m.get("mode") or "Internal"
                     cur.execute(
                         """
                         INSERT INTO document_chunks
                             (chunk_id, doc_id, content, metadata, embedding,
-                             source, doc_type, page)
-                        VALUES (%s, %s, %s, %s::jsonb, %s::vector, %s, %s, %s)
+                             source, mode, doc_type, page, checksum, uploaded_at)
+                        VALUES (%s, %s, %s, %s::jsonb, %s::vector, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (chunk_id) DO UPDATE SET
                             content   = EXCLUDED.content,
                             metadata  = EXCLUDED.metadata,
-                            embedding = EXCLUDED.embedding
+                            embedding = EXCLUDED.embedding,
+                            source = EXCLUDED.source,
+                            mode = EXCLUDED.mode,
+                            doc_type = EXCLUDED.doc_type,
+                            page = EXCLUDED.page,
+                            checksum = EXCLUDED.checksum,
+                            uploaded_at = EXCLUDED.uploaded_at
                         """,
                         (
                             chunk_id,
@@ -88,8 +95,11 @@ class PgVectorStore:
                             json.dumps(m),
                             _vec_literal(emb),
                             m.get("source"),
-                            m.get("type"),
+                            doc_type,
+                            doc_type,
                             m.get("page"),
+                            m.get("checksum"),
+                            m.get("uploaded_at"),
                         ),
                     )
 

@@ -18,6 +18,7 @@ python-multipart~=0.0.20
 psycopg2-binary~=2.9.0
 pgvector~=0.3.0
 sentence-transformers~=3.3.0
+openpyxl~=3.1.0
 pytest~=8.3.0
 pytest-asyncio~=0.24.0
 pytest-cov~=6.0.0
