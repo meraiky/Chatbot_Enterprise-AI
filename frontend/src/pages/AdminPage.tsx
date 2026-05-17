@@ -89,8 +89,8 @@ interface TokenUsageRecord {
     total_tokens: number;
     estimated: boolean | number;
     metadata?: {
-        question?: string;
-        answer_preview?: string;
+        question_tokens?: number;
+        answer_tokens?: number;
         sources?: Array<{ source?: string; page?: number; type?: string }>;
     };
 }
@@ -284,13 +284,6 @@ const AdminPage = ({ currentUser }: { currentUser: CurrentUser | null }) => {
         return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
     };
 
-    const previewText = (value?: unknown, fallback = '-') => {
-        if (value === null || value === undefined) return fallback;
-        const text = typeof value === 'string' ? value : JSON.stringify(value);
-        if (!text.trim()) return fallback;
-        return text.length > 140 ? `${text.slice(0, 140)}...` : text;
-    };
-
     const shortId = (value?: string | null) => {
         if (!value) return '-';
         return value.length > 12 ? `${value.slice(0, 8)}...` : value;
@@ -446,7 +439,7 @@ const AdminPage = ({ currentUser }: { currentUser: CurrentUser | null }) => {
                                         <th className="px-6 py-3">Operation</th>
                                         <th className="px-6 py-3">Session</th>
                                         <th className="px-6 py-3">Mode</th>
-                                        <th className="px-6 py-3">Question / Answer</th>
+                                        <th className="px-6 py-3">Content Metrics</th>
                                         <th className="px-6 py-3">Model</th>
                                         <th className="px-6 py-3 text-right">Input</th>
                                         <th className="px-6 py-3 text-right">Output</th>
@@ -462,8 +455,8 @@ const AdminPage = ({ currentUser }: { currentUser: CurrentUser | null }) => {
                                             <td className="px-6 py-4 text-slate-500">{record.mode || '-'}</td>
                                             <td className="px-6 py-4 min-w-[280px] max-w-[420px]">
                                                 <div className="space-y-1">
-                                                    <p className="text-xs font-medium text-slate-800">{previewText(record.metadata?.question)}</p>
-                                                    <p className="text-xs text-slate-500">{previewText(record.metadata?.answer_preview)}</p>
+                                                    <p className="text-xs font-medium text-slate-800">Question tokens: {formatNumber(record.metadata?.question_tokens || 0)}</p>
+                                                    <p className="text-xs text-slate-500">Answer tokens: {formatNumber(record.metadata?.answer_tokens || 0)}</p>
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4 text-slate-500 max-w-[240px] truncate">{record.model}</td>

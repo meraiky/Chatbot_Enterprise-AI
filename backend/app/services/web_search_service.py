@@ -66,7 +66,7 @@ class DuckDuckGoProvider(WebSearchProvider):
                     "snippet": item.get("body", "")[:400],
                 })
             if results:
-                logger.info(f"DuckDuckGo (library) returned {len(results)} results for: {query[:60]}")
+                logger.info("DuckDuckGo (library) returned %d results", len(results))
                 return results[:num_results]
         except ImportError:
             logger.warning("duckduckgo-search library not installed, falling back to Instant Answer API")
@@ -240,7 +240,7 @@ class WebSearchService:
         # W-2 fix: scan web search query for prompt injection before LLM synthesis
         scan_result = scan_chunk(query)
         if not scan_result["clean"]:
-            logger.warning(f"Web search query blocked by injection scanner: {query[:80]}")
+            logger.warning("Web search query blocked by injection scanner")
             return {
                 "cached": False,
                 "results": [],
@@ -256,7 +256,7 @@ class WebSearchService:
         if not force_refresh:
             cached_result = self._get_cached_result(query_hash)
             if cached_result:
-                logger.info(f"Web search cache hit for query: {query[:50]}")
+                logger.info("Web search cache hit")
                 return {
                     "cached": True,
                     "results": cached_result["search_results"],
@@ -265,11 +265,11 @@ class WebSearchService:
                 }
 
         # Not cached → perform search
-        logger.info(f"Web search cache miss for query: {query[:50]}")
+        logger.info("Web search cache miss")
         results = await self._search_multi_provider(query)
 
         if not results:
-            logger.warning(f"No search results found for query: {query[:50]}")
+            logger.warning("No search results found")
             return {
                 "cached": False,
                 "results": [],
@@ -294,7 +294,7 @@ class WebSearchService:
         """Try multiple providers with fallback"""
         for provider in self.providers:
             try:
-                logger.info(f"Searching with {provider.name()}: {query[:50]}")
+                logger.info("Searching with %s", provider.name())
                 results = await provider.search(query)
                 if results:
                     logger.info(f"Got {len(results)} results from {provider.name()}")
@@ -303,7 +303,7 @@ class WebSearchService:
                 logger.warning(f"Provider {provider.name()} failed: {e}")
                 continue
 
-        logger.error(f"All search providers failed for query: {query[:50]}")
+        logger.error("All search providers failed")
         return []
 
     async def _synthesize_answer(
@@ -451,7 +451,7 @@ Answer:"""
                             last_accessed = NOW()
                     """, (
                         query_hash,
-                        query,
+                        "",
                         json.dumps(results),
                         answer,
                         json.dumps(sources),

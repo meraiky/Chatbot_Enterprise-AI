@@ -88,7 +88,7 @@ class PostgresCacheService:
                 cached_data = self._redis_client.get(cache_key)
                 if cached_data:
                     data = json.loads(cached_data)
-                    logger.info("Redis L1 HIT — question: %.50s", question)
+                    logger.info("Redis L1 HIT mode=%s", mode)
                     return data["answer"], data["sources"]
             except Exception as e:
                 logger.warning("Redis L1 lookup failed: %s", e)
@@ -112,15 +112,15 @@ class PostgresCacheService:
                     row = cur.fetchone()
 
             if row is None:
-                logger.info("Cache MISS (L1+L2) — question: %.50s", question)
+                logger.info("Cache MISS (L1+L2) mode=%s", mode)
                 return None
 
             row_id, answer, sources_raw, distance = row
 
             if distance > settings.CACHE_SIMILARITY_THRESHOLD:
                 logger.info(
-                    "PostgreSQL L2 MISS — question: %.50s | distance: %.4f | threshold: %.2f",
-                    question, distance, settings.CACHE_SIMILARITY_THRESHOLD,
+                    "PostgreSQL L2 MISS mode=%s | distance: %.4f | threshold: %.2f",
+                    mode, distance, settings.CACHE_SIMILARITY_THRESHOLD,
                 )
                 return None
 
@@ -132,8 +132,8 @@ class PostgresCacheService:
             self._set_redis_cache(question, mode, answer, sources)
             
             logger.info(
-                "PostgreSQL L2 HIT — question: %.50s | distance: %.4f",
-                question, distance,
+                "PostgreSQL L2 HIT mode=%s | distance: %.4f",
+                mode, distance,
             )
             return answer, sources
 
@@ -188,7 +188,7 @@ class PostgresCacheService:
                         ),
                     )
 
-            logger.debug("Cached answer (L1+L2) for question: %.50s", question)
+            logger.debug("Cached answer (L1+L2) mode=%s", mode)
         except Exception:
             logger.exception("Error writing to PostgreSQL cache (L2)")
 
@@ -233,7 +233,7 @@ class PostgresCacheService:
 
             top = [
                 {
-                    "question": r[0][:100],
+                    "question": f"sha256:{hashlib.sha256(str(r[0]).encode()).hexdigest()[:12]}",
                     "mode": r[1],
                     "hit_count": r[2],
                     "created_at": str(r[3]),

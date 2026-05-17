@@ -164,7 +164,7 @@ class CacheStatsResponse(BaseModel):
                 "total_hits": 5000,
                 "hit_rate": 0.83,
                 "top_questions": [
-                    {"question": "What is the leave policy?", "hits": 150}
+                    {"question": "sha256:abc123def456", "hits": 150}
                 ]
             }
         }
@@ -173,7 +173,7 @@ class CacheStatsResponse(BaseModel):
     total_entries: int = Field(..., description="Total number of cached Q&A pairs")
     total_hits: int = Field(..., description="Total number of times cache was hit")
     hit_rate: float = Field(..., description="Cache hit rate (0.0 to 1.0)")
-    top_questions: List[Dict[str, Any]] = Field(..., description="Most frequently hit cached questions")
+    top_questions: List[Dict[str, Any]] = Field(..., description="Most frequently hit cached question hashes")
 
 @router.get("/qa-cache/stats", response_model=CacheStatsResponse, dependencies=[Depends(get_current_admin)])
 def get_cache_stats():

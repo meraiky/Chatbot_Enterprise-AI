@@ -455,8 +455,8 @@ def _content_to_text(content) -> str:
 
 def _usage_metadata(question: str, answer: str, sources: list[dict] | None = None) -> dict[str, object]:
     return {
-        "question": question,
-        "answer_preview": answer[:500],
+        "question_tokens": estimate_tokens(question),
+        "answer_tokens": estimate_tokens(answer),
         "sources": [
             {
                 "source": source.get("source"),
@@ -979,7 +979,13 @@ async def answer_query_hybrid(
     request_id = new_request_id()
     history_text = _prepare_history(history)
     
-    logger.info(f"[HYBRID RAG] request_id={request_id} user_id={user_id} question='{question[:100]}...' allow_web_search={allow_web_search}")
+    logger.info(
+        "[HYBRID RAG] request_id=%s user_id=%s question_tokens=%s allow_web_search=%s",
+        request_id,
+        user_id,
+        estimate_tokens(question),
+        allow_web_search,
+    )
 
     intent = _classify_light_intent(question)
     if intent in {"empty", "chit_chat", "out_of_scope"}:
@@ -1165,10 +1171,10 @@ async def answer_query_stream_events_hybrid(
     usage_records: list[dict[str, Any]] = []
 
     logger.info(
-        "[HYBRID STREAM] request_id=%s user_id=%s question='%s...' allow_web_search=%s",
+        "[HYBRID STREAM] request_id=%s user_id=%s question_tokens=%s allow_web_search=%s",
         request_id,
         user_id,
-        question[:100],
+        estimate_tokens(question),
         allow_web_search,
     )
 
