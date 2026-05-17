@@ -42,7 +42,8 @@ You will receive a response within **48 hours**. We aim to release a patch withi
 ### LLM Security
 - **Topic guard** blocks prompt injection and off-topic queries via pgvector similarity before any LLM call
 - **Injection scanner** detects common prompt injection patterns in user input
-- **PII redactor** strips email addresses, phone numbers, and other PII before logging
+- Raw user questions and web-search queries are not written to application logs; logs use request IDs, token counts, mode, and source/result counts instead
+- Usage telemetry stores token metrics and source metadata, not raw questions or answer previews
 
 ### Network
 - Custom OpenAI-compatible endpoints must use HTTPS, cannot target local/private network hosts, and require `CUSTOM_ENDPOINT_ALLOWLIST` in production
@@ -59,6 +60,9 @@ You will receive a response within **48 hours**. We aim to release a patch withi
 - Documents are stored with Internal/External visibility controls
 - Upload restricted to PDF files with extractable text only (max 50MB, MIME type validated)
 - BM25 cache files contain no user data and are excluded from version control
+- Web search cache records do not store raw search queries; migration `017` clears legacy `external_search_cache.search_query` values
+- Migration `017` removes legacy `question` and `answer_preview` fields from `token_usage.metadata`
+- PostgreSQL still stores document chunks, semantic QA cache entries, and optional chat audit records; treat database backups as sensitive data
 
 ---
 

@@ -63,7 +63,14 @@ Before opening a PR, verify:
 - [ ] `.env.example` updated if new env vars were added
 - [ ] `CHANGELOG.md` updated under `[Unreleased]`
 - [ ] No `.env`, secrets, or large binaries committed
+- [ ] No raw prompts, user questions, answers, API keys, tokens, or credentials are logged or added to usage metadata
 - [ ] Docstrings added for non-obvious functions
+
+## Security and Privacy Rules
+
+- Use `request_id`, token counts, mode, model, source counts, and status flags for debugging instead of raw user content.
+- Do not add `question`, `answer`, `answer_preview`, raw web-search query, credential, bearer token, or API key values to logs, telemetry metadata, errors, or admin dashboards.
+- If a feature must persist user-visible content, document why it is required, scope access to admins or owners, and add the smallest relevant redaction or retention behavior.
 
 ## Running Tests
 

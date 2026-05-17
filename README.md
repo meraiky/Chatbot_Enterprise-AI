@@ -5,7 +5,7 @@
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
 [![Node 20](https://img.shields.io/badge/node-20-green.svg)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/docker-compose-blue.svg?logo=docker)](docker-compose.yml)
-[![Alembic](https://img.shields.io/badge/migrations-16_alembic-green.svg)](backend/migrations/)
+[![Alembic](https://img.shields.io/badge/migrations-17_alembic-green.svg)](backend/migrations/)
 
 A production-ready RAG chatbot for internal knowledge bases — hybrid retrieval, multi-model LLM routing, two-layer caching, and a full admin dashboard.
 
@@ -32,7 +32,7 @@ Most RAG prototypes fail in production because of three problems: slow retrieval
 - **Two-layer cache** — Redis (exact match) → pgvector (semantic similarity) before any LLM call
 - **Topic guard** — pgvector similarity check blocks prompt injection and off-topic queries
 - **Multi-model routing** — route by model, cost cap, or availability; keys managed in Admin UI
-- **PII redaction** — strips emails, phones, and other PII from logs and responses
+- **Privacy-aware telemetry** — avoids raw prompt/query logging and keeps usage analytics to token metrics plus source metadata
 - **Web search fallback** — Google / Bing / DuckDuckGo for queries outside document scope
 - **Full admin dashboard** — users, API key pool, usage analytics, document management
 - **Streaming responses** — SSE endpoint for chunk-by-chunk delivery
@@ -213,7 +213,7 @@ Chatbot_Enterprise-AI/
 │   │       ├── topic_guard    injection + off-topic blocking
 │   │       ├── web_search     Google · Bing · DuckDuckGo fallback
 │   │       └── usage_tracker  token accounting
-│   ├── migrations/        16 Alembic migrations
+│   ├── migrations/        17 Alembic migrations
 │   ├── tests/             unit/ + integration/
 │   └── Dockerfile
 ├── frontend/
@@ -244,6 +244,9 @@ Document chunks, semantic cache, and topic guard all live in the same PostgreSQL
 
 **Why two cache layers?**
 Redis gives sub-millisecond exact-match hits. pgvector semantic cache catches near-duplicate questions that differ in phrasing. Combined hit rate is high enough to cut LLM calls by 40–60% on repeated internal FAQs.
+
+**What does the usage dashboard store?**
+Usage analytics are intentionally content-light: token counts, model/operation metadata, request IDs, and source references. Raw user questions, answer previews, and web-search queries are not written to usage metadata or search cache records. Migration `017` redacts those fields from existing records.
 
 **Why a pluggable model router?**
 Different query types have different cost/quality tradeoffs. Simple factual lookups can go to a cheaper model; complex reasoning goes to a stronger one. The admin key pool lets ops teams swap providers without a code deploy.
