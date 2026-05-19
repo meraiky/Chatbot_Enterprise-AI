@@ -45,7 +45,7 @@ def mirror_document_chunks(
     documents: list[Document],
     ids: list[str],
 ) -> int:
-    """Persist indexed chunks to PostgreSQL so local Chroma can be rebuilt."""
+    """Persist indexed chunks to PostgreSQL so the vector store can be rebuilt."""
     if not settings.DATABASE_URL or not documents:
         return 0
 
@@ -103,8 +103,8 @@ def delete_mirrored_document(doc_id: str) -> int:
             return int(cur.rowcount or 0)
 
 
-def rebuild_chroma_from_mirror(doc_id: str | None = None, mode: str | None = None) -> dict[str, int]:
-    """Rehydrate local Chroma from PostgreSQL mirrored chunks."""
+def rebuild_vector_from_mirror(doc_id: str | None = None, mode: str | None = None) -> dict[str, int]:
+    """Rehydrate pgvector from PostgreSQL mirrored chunks."""
     if not settings.DATABASE_URL:
         return {"chunks": 0, "documents": 0}
 
@@ -138,7 +138,7 @@ def rebuild_chroma_from_mirror(doc_id: str | None = None, mode: str | None = Non
     vector_store = get_vector_store()
     doc_ids = sorted({row["doc_id"] for row in rows})
     for current_doc_id in doc_ids:
-        vector_store.delete(where={"doc_id": current_doc_id})
+        vector_store.delete_by_doc_id(current_doc_id)
 
     documents = [
         Document(page_content=row["content"], metadata=row["metadata"] or {})

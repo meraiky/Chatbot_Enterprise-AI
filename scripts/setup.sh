@@ -65,11 +65,55 @@ else
     # Generate REDIS_PASSWORD (32 hex chars)
     REDIS_PASS=$(openssl rand -hex 16)
     sed -i.bak "s|REDIS_PASSWORD=.*|REDIS_PASSWORD=${REDIS_PASS}|" "$ENV_FILE"
+    sed -i.bak "s|REDIS_URL=.*|REDIS_URL=redis://:${REDIS_PASS}@localhost:6379/0|" "$ENV_FILE"
 
     # Clean up sed backup files (macOS creates .bak)
     rm -f "${ENV_FILE}.bak"
 
     success "Secrets generated and written to $ENV_FILE"
+fi
+
+# ── 2b. Create root .env for docker-compose variable substitution ──────────────
+# docker-compose.yml uses ${POSTGRES_PASSWORD}, ${REDIS_PASSWORD} etc. via the
+# root .env file (not backend/.env). We sync the necessary vars here so that
+# `docker compose up` works without any extra steps.
+ROOT_ENV=".env"
+ROOT_EXAMPLE=".env.example"
+
+if [[ ! -f "$ROOT_ENV" && -f "$ROOT_EXAMPLE" ]]; then
+    info "Creating root $ROOT_ENV for docker-compose..."
+    cp "$ROOT_EXAMPLE" "$ROOT_ENV"
+fi
+
+if [[ -f "$ROOT_ENV" ]]; then
+    # Read generated secrets from backend/.env and mirror to root .env
+    _get_val() { grep "^$1=" "$ENV_FILE" 2>/dev/null | cut -d= -f2-; }
+    _set_val() {
+        local key="$1" val="$2"
+        if grep -q "^${key}=" "$ROOT_ENV"; then
+            sed -i.bak "s|^${key}=.*|${key}=${val}|" "$ROOT_ENV"
+        else
+            echo "${key}=${val}" >> "$ROOT_ENV"
+        fi
+        rm -f "${ROOT_ENV}.bak"
+    }
+
+    REDIS_PASS_VAL=$(_get_val REDIS_PASSWORD)
+    POSTGRES_PASS=$(openssl rand -hex 16)
+
+    [[ -n "$REDIS_PASS_VAL" ]] && _set_val REDIS_PASSWORD "$REDIS_PASS_VAL"
+    _set_val POSTGRES_PASSWORD "$POSTGRES_PASS"
+    _set_val POSTGRES_USER "postgres"
+    _set_val POSTGRES_DB "aiagent_db"
+    _set_val DATABASE_URL "postgresql://postgres:${POSTGRES_PASS}@localhost:5432/aiagent_db"
+
+    # Also sync backend/.env DATABASE_URL to match the generated POSTGRES_PASSWORD
+    sed -i.bak "s|^DATABASE_URL=.*|DATABASE_URL=postgresql://postgres:${POSTGRES_PASS}@localhost:5432/aiagent_db|" "$ENV_FILE"
+    rm -f "${ENV_FILE}.bak"
+
+    success "Root $ROOT_ENV written (docker-compose vars: POSTGRES_PASSWORD, REDIS_PASSWORD)"
+else
+    warn "Could not create root .env — manually set POSTGRES_PASSWORD and REDIS_PASSWORD in .env"
 fi
 
 # ── 3. Database setup choice ───────────────────────────────────────────────────
@@ -141,8 +185,8 @@ if [[ "${START_NOW,,}" == "y" ]]; then
     success "Services started."
 
     # ── 6. Wait for backend health ─────────────────────────────────────────────
-    info "Waiting for backend to be ready..."
-    MAX_WAIT=60
+    info "Waiting for backend to be ready (first run downloads ~420 MB embedding model — up to 5 min)..."
+    MAX_WAIT=300
     WAITED=0
     until curl -sf http://localhost:8000/health &>/dev/null; do
         sleep 2

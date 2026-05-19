@@ -17,6 +17,7 @@ from app.services.rag.query_engine import (
 )
 from app.core.config import settings
 from app.core.auth import get_current_user, TokenData
+from app.services.memory_service import list_user_conversations, get_conversation_history
 from fastapi import Depends
 
 router = APIRouter()
@@ -344,7 +345,11 @@ async def send_message_hybrid_stream(
             yield _sse("token", {"text": f"Error: {_public_chat_error(e)}"})
             yield _sse("done", {})
 
-    return StreamingResponse(event_stream_hybrid(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_stream_hybrid(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+    )
 
 
 @router.post("/message/stream")
@@ -391,4 +396,30 @@ def send_message_stream(
             yield _sse("token", {"text": f"Error: {_public_chat_error(e)}"})
             yield _sse("done", {})
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+    )
+
+
+@router.get("/conversations")
+async def list_conversations(current_user: TokenData = Depends(get_current_user)):
+    """List the current user's past conversations, newest first."""
+    if not current_user.user_id:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    return list_user_conversations(current_user.user_id, limit=30)
+
+
+@router.get("/conversations/{conversation_id}")
+async def get_conversation(
+    conversation_id: str,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """Return all messages for a conversation owned by the current user."""
+    if not current_user.user_id:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    messages = get_conversation_history(conversation_id, current_user.user_id)
+    if not messages:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    return {"conversation_id": conversation_id, "messages": messages}

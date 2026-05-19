@@ -43,12 +43,12 @@ docker compose logs -f backend
 # Look for: "Application startup complete"
 ```
 
-### 4. Run Migrations and Seed Demo Users
+### 4. Seed Demo Users
+
+> **Migrations run automatically** when the backend starts — no manual step needed.
+> Once you see "Application startup complete" in the logs, the schema is ready.
 
 ```bash
-# Apply database migrations
-docker compose exec backend alembic upgrade head
-
 # Seed demo users + topic guard patterns
 make seed
 ```
@@ -147,7 +147,7 @@ Before deploying to production:
 → Check that `.env` exists and `DATABASE_URL` is filled in
 
 **"relation 'document_chunks' does not exist"**
-→ Run `alembic upgrade head` in the backend directory
+→ Migrations run automatically on startup. If you see this, the backend may have started before the DB was ready. Run `make migrate` or restart the backend container.
 
 **Backend hangs on startup**
 → First run downloads ~420MB embedding model. Wait 1-3 minutes.

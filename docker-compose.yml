@@ -44,10 +44,10 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}@db:5432/${POSTGRES_DB:-aiagent_db}
       REDIS_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}@redis:6379/0
       DOCUMENT_STORAGE_DIR: /app/storage/documents
-      ENVIRONMENT: ${ENVIRONMENT:-development}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
       APP_HOST: 0.0.0.0
       PROJECT_NAME: "Enterprise AI Chatbot"
-      CORS_ORIGINS: "http://localhost:3000,http://localhost:5173,http://localhost:8501"
+      CORS_ORIGINS: "http://localhost:3000,http://localhost:5173"
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
@@ -55,8 +55,19 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/ready || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 120s
     volumes:
       - document_data:/app/storage/documents
+      - bm25_cache_data:/app/data
+    deploy:
+      resources:
+        limits:
+          memory: 2g
 
   frontend:
     build:
@@ -66,9 +77,11 @@ services:
     ports:
       - "127.0.0.1:3000:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
   postgres_data:
   redis_data:
   document_data:
+  bm25_cache_data:

@@ -1,3 +1,4 @@
+import ipaddress
 import logging
 import time
 from datetime import timedelta
@@ -15,7 +16,6 @@ from app.core.auth import (
     get_current_user,
     revoke_access_token,
     verify_password,
-    Token,
     TokenData,
     ACCESS_TOKEN_EXPIRE_MINUTES,
     REFRESH_TOKEN_EXPIRE_DAYS,
@@ -50,29 +50,39 @@ def _get_redis() -> redis.Redis | None:
     return _redis_client
 
 
-# Trusted proxy IPs - only these can set X-Real-IP/X-Forwarded-For headers
-# Add your reverse proxy IPs here (nginx, cloudflare, load balancer, etc.)
-TRUSTED_PROXIES = {
-    "127.0.0.1",
-    "::1",
-    # Add production proxy IPs when deploying, e.g.:
-    # "10.0.0.1",  # Internal load balancer
-    # "172.16.0.1",  # Nginx proxy
-}
+def _is_trusted_proxy(ip: str) -> bool:
+    """Check if IP matches any entry in TRUSTED_PROXY_CIDRS (exact IP or CIDR range).
+
+    Configurable via TRUSTED_PROXY_CIDRS env var (comma-separated IPs/CIDRs).
+    Default covers loopback and the Docker bridge network (172.16.0.0/12).
+    """
+    entries = [e.strip() for e in settings.TRUSTED_PROXY_CIDRS.split(",") if e.strip()]
+    try:
+        addr = ipaddress.ip_address(ip)
+        for entry in entries:
+            try:
+                if "/" in entry:
+                    if addr in ipaddress.ip_network(entry, strict=False):
+                        return True
+                elif ip == entry:
+                    return True
+            except ValueError:
+                continue
+    except ValueError:
+        pass
+    return False
 
 
 def _real_ip(request: Request) -> str:
     """Return the true client IP, honouring X-Real-IP only from trusted proxies.
-    
-    Security: Only requests from TRUSTED_PROXIES can set X-Real-IP/X-Forwarded-For.
-    This prevents rate limit bypass via header injection attacks.
-    
+
+    Security: only requests from TRUSTED_PROXY_CIDRS can set X-Real-IP/X-Forwarded-For.
+    Prevents rate-limit bypass via header injection attacks.
     See: https://adam-p.ca/blog/2022/03/x-forwarded-for/
     """
     client_ip = request.client.host if request.client else "unknown"
-    
-    # Only trust proxy headers if request comes from trusted proxy
-    if client_ip in TRUSTED_PROXIES:
+
+    if _is_trusted_proxy(client_ip):
         # Try X-Real-IP first (set by nginx)
         real_ip = request.headers.get("x-real-ip")
         if real_ip:
@@ -180,7 +190,7 @@ class UserResponse(BaseModel):
     can_manage_models: bool
 
 
-@router.post("/login", response_model=Token)
+@router.post("/login")
 async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
     """Authenticate user and return JWT token with rate limiting."""
     _check_login_rate_limit(_real_ip(request))
@@ -229,7 +239,7 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
     return response
 
 
-@router.post("/refresh", response_model=Token)
+@router.post("/refresh")
 async def refresh_session(request: Request):
     """Rotate the refresh token and issue a new short-lived access token."""
     refresh_token = request.cookies.get("refresh_token")
@@ -270,9 +280,10 @@ async def logout(request: Request, bearer: str | None = Depends(oauth2_scheme)):
     refresh_token = request.cookies.get("refresh_token")
     revoked_access = revoke_access_token(access_token) if access_token else False
     revoked_refresh = revoke_access_token(refresh_token) if refresh_token else False
+    secure = not _is_dev_environment()
     response = JSONResponse(content={"revoked": revoked_access or revoked_refresh})
-    response.delete_cookie("access_token", path="/api")
-    response.delete_cookie("refresh_token", path="/api/v1/auth")
+    response.delete_cookie("access_token", path="/api", httponly=True, samesite="lax", secure=secure)
+    response.delete_cookie("refresh_token", path="/api/v1/auth", httponly=True, samesite="lax", secure=secure)
     return response
 
 

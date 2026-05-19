@@ -25,7 +25,11 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Set the sqlalchemy.url dynamically from our settings
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL or "")
+if not settings.DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL is not configured. Set it in .env before running migrations."
+    )
+config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
 
 # target_metadata is used by autogenerate to compare the
 # current database schema with the models.

@@ -38,7 +38,8 @@ apiClient.interceptors.response.use(
 
 export const getApiErrorMessage = (error: unknown, fallback: string) => {
     if (axios.isAxiosError(error)) {
-        const detail = error.response?.data?.detail;
+        const data = error.response?.data;
+        const detail = data?.detail;
         if (typeof detail === 'string' && detail.trim()) {
             return detail;
         }
@@ -46,6 +47,10 @@ export const getApiErrorMessage = (error: unknown, fallback: string) => {
             return detail
                 .map((item) => item?.msg || item?.message || JSON.stringify(item))
                 .join('; ');
+        }
+        // ChatbotException responses use a `message` field instead of `detail`
+        if (typeof data?.message === 'string' && data.message.trim()) {
+            return data.message;
         }
         if (error.message) {
             return error.message;

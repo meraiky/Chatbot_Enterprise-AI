@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     # Vendor-independent local embeddings (768 dims, no API key required)
     EMBEDDING_MODEL: str = "sentence-transformers/all-mpnet-base-v2"
     DOCUMENT_STORAGE_DIR: str = "./storage/documents"
+    DATA_DIR: str = "./storage/data"  # AgentMemory and other persistent data
     # R7-3 fix: Removed stale Streamlit origins (8501). Credentials belong in REDIS_URL, not REDIS_PASSWORD.
     CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
     RETRIEVAL_TOP_K: int = 5
@@ -43,6 +44,9 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     ALLOW_DEV_AUTH_BYPASS: bool = False
+    # First-run bootstrap: if DB has no users, auto-create this admin account on startup.
+    INITIAL_ADMIN_USERNAME: str = ""
+    INITIAL_ADMIN_PASSWORD: str = ""
     TOPIC_GUARD_FAIL_CLOSED: bool = True
     ENCRYPTION_KEY: str = ""  # 32-byte base64 key for encrypting user credentials
 
@@ -51,6 +55,7 @@ class Settings(BaseSettings):
     GOOGLE_SEARCH_CX: str = ""
     BING_SEARCH_API_KEY: str = ""
     CUSTOM_ENDPOINT_ALLOWLIST: str = ""  # Comma-separated hostnames allowed for custom LLM endpoints.
+    TRUSTED_PROXY_CIDRS: str = "127.0.0.1,::1,172.16.0.0/12"  # Comma-separated IPs or CIDR ranges trusted as reverse proxies
 
     # Railway PostgreSQL — auto-injected by Railway, or set manually in .env
     DATABASE_URL: str = ""

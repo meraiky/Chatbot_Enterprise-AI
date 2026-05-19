@@ -29,3 +29,8 @@ bcrypt~=4.2
 structlog~=24.4.0
 redis~=5.2.0
 ddgs>=9.0.0
+
+# MinerU — Advanced document extraction with layout awareness
+# Optional: Install with `pip install magic-pdf[full]` for full OCR support
+# Falls back to PyMuPDF if not installed
+# magic-pdf>=0.7.0

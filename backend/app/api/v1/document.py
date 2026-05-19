@@ -1,5 +1,4 @@
 import os
-import shutil
 import tempfile
 import logging
 import hashlib
@@ -17,7 +16,7 @@ from app.services.rag.document_registry import (
     delete_indexed_document,
     list_indexed_documents,
 )
-from app.services.rag.document_mirror import rebuild_chroma_from_mirror
+from app.services.rag.document_mirror import rebuild_vector_from_mirror
 from app.services.rag.document_images import (
     delete_document_images,
     extract_and_store_pdf_images,
@@ -46,8 +45,6 @@ def _public_upload_error(error: Exception) -> str:
         return "Gemini API key is invalid. Update GEMINI_API_KEY in backend/.env and restart the backend."
     if "gemini_api_key is not configured" in message:
         return "GEMINI_API_KEY is not configured in backend/.env."
-    if "permission" in message and "chroma" in message:
-        return "ChromaDB storage is not writable. Check backend/chroma_db permissions."
     if "does not contain extractable text" in message:
         return "Document does not contain extractable text. For scanned PDFs, upload an OCR/text PDF."
     if "legacy .doc" in message or "legacy .xls" in message or "unsupported file type" in message:
@@ -160,7 +157,7 @@ class DeleteResponse(BaseModel):
 
 
 class RebuildVectorStoreResponse(BaseModel):
-    """Result of rebuilding local Chroma from durable PostgreSQL mirror."""
+    """Result of rebuilding pgvector from durable PostgreSQL mirror."""
     chunks: int
     documents: int
 
@@ -301,9 +298,9 @@ async def rebuild_vector_store(
     mode: Literal["Internal", "External"] | None = None,
     current_user: TokenData = Depends(get_current_admin),
 ):
-    """Rebuild local Chroma from the durable PostgreSQL document_chunks mirror."""
+    """Rebuild pgvector store from the durable PostgreSQL document_chunks mirror."""
     try:
-        return rebuild_chroma_from_mirror(doc_id=doc_id, mode=mode)
+        return rebuild_vector_from_mirror(doc_id=doc_id, mode=mode)
     except Exception:
         logger.exception("Failed to rebuild vector store from mirror")
         raise HTTPException(status_code=500, detail="Failed to rebuild vector store.")
@@ -454,7 +451,7 @@ async def reprocess_document(
     """
     Re-index a document from the persisted raw source file.
 
-    This is useful when local Chroma is stale, embedding settings changed, or an
+    This is useful when the vector store is stale, embedding settings changed, or an
     earlier indexing run failed after the source file was saved.
     """
     job = get_ingestion_job(doc_id)

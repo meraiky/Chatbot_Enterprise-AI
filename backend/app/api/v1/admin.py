@@ -6,7 +6,7 @@ All routes in this module require a valid JWT for a user with the admin role.
 from typing import Literal, Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, ConfigDict, Field
-from app.core.auth import get_current_admin, TokenData
+from app.core.auth import get_current_admin
 
 from app.services import topic_guard_service
 from app.services.rag.cache_service import cache_service
@@ -14,8 +14,6 @@ from app.services.rag.bm25_search import BM25Searcher
 from app.services.rag.consistency import check_vector_consistency
 from app.services.rag.reranker import reranker
 from app.services.rag.vector_store import vector_store_health
-from app.core.config import settings
-
 router = APIRouter()
 
 

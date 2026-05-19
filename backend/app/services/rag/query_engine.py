@@ -1,4 +1,3 @@
-import json
 import logging
 import re
 import unicodedata
@@ -8,7 +7,7 @@ from langchain_core.documents import Document
 logger = logging.getLogger(__name__)
 
 from app.services.rag.vector_store import get_vector_store
-from app.services.rag.bm25_search import BM25Searcher
+from app.services.rag.bm25_search import get_or_build_searcher
 from app.services.rag.reranker import reranker
 from app.services.llm_service import get_llm
 from app.core.config import settings
@@ -26,6 +25,7 @@ from app.core.observability import trace_span
 from langchain_core.prompts import ChatPromptTemplate
 from app.services.pricing_service import is_over_budget
 from app.services.rag.injection_scanner import scan_chunk
+from app.services.memory_service import store_conversation_turn, recall_conversation_context
 
 
 NO_CONTEXT_ANSWER = (
@@ -258,7 +258,7 @@ def retrieve_context(question: str, mode: str, request_id: str, conversation_id:
             metadatas = all_docs.get("metadatas") or []
             
             # Use persistent BM25 searcher with mode-specific caching
-            bm25_searcher = BM25Searcher(corpus, mode=mode)
+            bm25_searcher = get_or_build_searcher(corpus, mode=mode)
             bm25_results_indices = bm25_searcher.search(question, k=settings.RETRIEVAL_CANDIDATES_K)
             
             bm25_docs = []
@@ -294,10 +294,14 @@ def retrieve_context(question: str, mode: str, request_id: str, conversation_id:
         if doc:
             final_results.append((doc, score))
 
-    if final_results and float(final_results[0][1]) < settings.MIN_RERANK_SCORE:
+    above_threshold = [
+        (doc, score) for doc, score in final_results
+        if score >= settings.MIN_RERANK_SCORE
+    ]
+    if not above_threshold:
         return "", [], retrieval_usage
 
-    top_results = final_results[:settings.FINAL_CONTEXT_K]
+    top_results = above_threshold[:settings.FINAL_CONTEXT_K]
 
     context_parts = []
     sources = []
@@ -315,7 +319,7 @@ def retrieve_context(question: str, mode: str, request_id: str, conversation_id:
             "page": metadata.get("page"),
             "type": metadata.get("type", mode),
             "doc_id": metadata.get("doc_id", ""),
-            "distance": round(float(distance), 4),
+            "distance": round(distance, 4),
             "preview": content[:240],
         }
         sources.append(source)
@@ -512,7 +516,18 @@ def answer_query(
         raise ValueError(f"Local cost budget of ${settings.LOCAL_COST_BUDGET} has been exceeded.")
 
     request_id = new_request_id()
+    
+    # AgentMemory: Recall server-side context as fallback when client sends no history
+    memory_context = ""
+    if conversation_id:
+        memory_context = recall_conversation_context(conversation_id, limit=5)
+        if memory_context:
+            logger.debug("Recalled memory context for conversation %s", conversation_id)
+
     history_text = _prepare_history(history)
+    # Use server-side memory only when the client provided no history (avoids duplicate turns)
+    if memory_context and not history:
+        history_text = memory_context
 
     intent = _classify_light_intent(question)
     if intent == "empty":
@@ -710,6 +725,12 @@ def answer_query(
 
     # 2. Store in cache
     cache_service.set_cached_answer(question, reply, sources, mode)
+    
+    # 3. AgentMemory: Store conversation turn
+    if conversation_id:
+        store_conversation_turn(conversation_id, "user", question, user_id=user_id)
+        store_conversation_turn(conversation_id, "assistant", reply, user_id=user_id)
+        logger.debug("Stored conversation turn in memory for conversation %s", conversation_id)
 
     return {
         "reply": reply,
@@ -734,9 +755,13 @@ def answer_query_stream(
     _check_prompt_injection(question)
     if is_over_budget(conversation_id):
         raise ValueError(f"Local cost budget of ${settings.LOCAL_COST_BUDGET} has been exceeded.")
-        
+
     request_id = new_request_id()
     history_text = _prepare_history(history)
+    if not history and conversation_id:
+        mem = recall_conversation_context(conversation_id, limit=5)
+        if mem:
+            history_text = mem
 
     intent = _classify_light_intent(question)
     if intent == "empty":
@@ -978,7 +1003,11 @@ async def answer_query_hybrid(
     _check_prompt_injection(question)
     request_id = new_request_id()
     history_text = _prepare_history(history)
-    
+    if not history and conversation_id:
+        mem = recall_conversation_context(conversation_id, limit=5)
+        if mem:
+            history_text = mem
+
     logger.info(
         "[HYBRID RAG] request_id=%s user_id=%s question_tokens=%s allow_web_search=%s",
         request_id,
@@ -1168,6 +1197,10 @@ async def answer_query_stream_events_hybrid(
 
     request_id = new_request_id()
     history_text = _prepare_history(history)
+    if not history and conversation_id:
+        mem = recall_conversation_context(conversation_id, limit=5)
+        if mem:
+            history_text = mem
     usage_records: list[dict[str, Any]] = []
 
     logger.info(
@@ -1391,6 +1424,10 @@ def answer_query_stream_events(
     _check_prompt_injection(question)
     request_id = new_request_id()
     history_text = _prepare_history(history)
+    if not history and conversation_id:
+        mem = recall_conversation_context(conversation_id, limit=5)
+        if mem:
+            history_text = mem
 
     intent = _classify_light_intent(question)
     if intent == "empty":

@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1 import chat, document, usage, admin, auth, users
 from app.core.config import get_cors_origins, settings
-from app.core.database import init_db
+from app.core.database import init_db, seed_initial_admin
 from app.middleware.error_handler import setup_exception_handlers
 from app.middleware.security import setup_security_middleware
 from app.middleware.logging import LoggingMiddleware
@@ -113,6 +113,7 @@ def _run_startup_checks() -> None:
 
     if settings.DATABASE_URL:
         init_db()
+        seed_initial_admin()
 
 @app.get("/")
 def health_check():

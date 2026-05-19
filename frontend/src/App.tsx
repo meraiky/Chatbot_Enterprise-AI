@@ -198,16 +198,19 @@ function App() {
 
                 <div className="flex-1 overflow-auto p-6">
                     <ErrorBoundary>
-                        <section className={view === 'chat' ? 'h-full' : 'hidden'}>
-                            <ChatPage />
+                        <section className={`h-full transition-opacity duration-200 ${view === 'chat' ? 'opacity-100' : 'opacity-0 pointer-events-none absolute'}`}>
+                            <ChatPage
+                                isAuthenticated={isAuthenticated}
+                                isAdmin={currentUser?.role === 'admin'}
+                            />
                         </section>
                         {isAuthenticated && currentUser?.role === 'admin' && visitedViews.admin && (
-                            <section className={view === 'admin' ? 'h-full' : 'hidden'}>
+                            <section className={`h-full transition-opacity duration-200 ${view === 'admin' ? 'opacity-100' : 'opacity-0 pointer-events-none absolute'}`}>
                                 <AdminPage currentUser={currentUser} />
                             </section>
                         )}
                         {isAuthenticated && visitedViews.settings && (
-                            <section className={view === 'settings' ? 'h-full' : 'hidden'}>
+                            <section className={`h-full transition-opacity duration-200 ${view === 'settings' ? 'opacity-100' : 'opacity-0 pointer-events-none absolute'}`}>
                                 <UserSettingsPage />
                             </section>
                         )}
