@@ -7,39 +7,50 @@
 [![Docker](https://img.shields.io/badge/docker-compose-blue.svg?logo=docker)](docker-compose.yml)
 [![Alembic](https://img.shields.io/badge/migrations-18_alembic-green.svg)](backend/migrations/)
 
-A production-ready RAG chatbot for internal knowledge bases — hybrid retrieval, multi-model LLM routing, two-layer caching, and a full admin dashboard.
+A self-hosted enterprise AI chatbot for internal knowledge bases. It includes document upload, RAG search, streaming chat, user/admin management, and encrypted LLM API key management.
 
 **New to this project? Start with [`QUICKSTART.md`](QUICKSTART.md) for a 5-minute setup guide.**
 
 ---
 
-## Why this architecture?
+## What You Get
 
-Most RAG prototypes fail in production because of three problems: slow retrieval, expensive repeated LLM calls, and no guardrails against off-topic queries. This project addresses all three:
+- **Chat over your documents** with PDF upload, indexing, citations, and streaming answers.
+- **Admin dashboard** for users, documents, API keys, model settings, topic guards, and usage.
+- **Bring your own LLM key** for Google Gemini, Anthropic Claude, or OpenAI.
+- **Self-hosted data layer** using PostgreSQL + pgvector instead of a separate vector database.
+- **Docker-first setup** so a new user can clone the repo, fill `.env`, and run the stack.
+
+---
+
+## Why This Design?
+
+The stack is intentionally compact: one backend, one frontend, one PostgreSQL database, and Redis for fast caching. The RAG internals are more advanced, but they are hidden behind the app so users do not need to configure every piece on day one.
 
 | Problem | Solution |
 |---|---|
-| Pure semantic search misses keyword-heavy queries | Hybrid BM25 + pgvector retrieval, cross-encoder reranking |
-| Every question hits the LLM | Redis exact cache (L1) + pgvector semantic cache (L2) |
-| No control over what the LLM answers | Topic guard blocks out-of-scope queries before any LLM call |
-| Vendor lock-in on LLM provider | Pluggable model router — Gemini, Claude, GPT switchable at runtime |
+| New users need an easy setup | Docker Compose runs backend, frontend, PostgreSQL, and Redis |
+| Internal documents need search quality | pgvector semantic search + BM25 keyword search |
+| LLM calls can get expensive | Redis exact cache + pgvector semantic cache |
+| Teams use different LLM vendors | Admin-managed Gemini, Claude, and OpenAI keys |
+| Internal apps need guardrails | Topic guard and injection scanning run before LLM calls |
 
 ---
 
-## Key Features
+## Main Features
 
-- **Hybrid retrieval** — pgvector semantic search + BM25 keyword search, merged via RRF and reranked by cross-encoder
-- **Two-layer cache** — Redis (exact match) → pgvector (semantic similarity) before any LLM call
-- **Topic guard** — pgvector similarity check blocks prompt injection and off-topic queries
-- **Multi-model routing** — route by model, cost cap, or availability; keys managed in Admin UI
-- **Privacy-aware telemetry** — avoids raw prompt/query logging and keeps usage analytics to token metrics plus source metadata
-- **Web search fallback** — Google / Bing / DuckDuckGo for queries outside document scope
-- **Full admin dashboard** — users, API key pool, usage analytics, document management
-- **Streaming responses** — SSE endpoint for chunk-by-chunk delivery
+- Document upload and indexing
+- Hybrid retrieval with citations
+- Streaming chat responses
+- Admin-managed LLM API keys
+- Per-user model configuration
+- Topic guard and prompt-injection checks
+- Usage tracking without storing raw prompts in analytics
+- Optional web search fallback
 
 ---
 
-## Architecture
+## Simple Architecture
 
 ```mermaid
 graph TD
@@ -72,21 +83,33 @@ graph TD
 
 ## Tech Stack
 
+### Core App
+
 | Layer | Technology |
 |---|---|
 | Backend | FastAPI 0.115, Python 3.12 |
-| Database | PostgreSQL 16 + pgvector |
-| Vector store | PostgreSQL + pgvector (document_chunks) |
-| Cache | Redis 7 |
-| LLMs | Google Gemini, Anthropic Claude, OpenAI GPT (pluggable) |
-| Embeddings | sentence-transformers/all-mpnet-base-v2 (local, 768 dims, no API key) |
-| Reranker | sentence-transformers cross-encoder |
-| Keyword search | BM25 (rank_bm25) |
 | Frontend | React 18 + TypeScript + Vite 5 + Tailwind CSS |
 | State | Zustand |
+| Database / Vector Store | PostgreSQL 16 + pgvector |
+| Cache | Redis 7 |
 | Auth | JWT + bcrypt |
 | Migrations | Alembic |
-| CI/CD | GitHub Actions + Docker |
+| Runtime | Docker Compose |
+| CI/CD | GitHub Actions |
+
+### AI / RAG Internals
+
+| Feature | Technology |
+|---|---|
+| LLM providers | Google Gemini, Anthropic Claude, OpenAI |
+| Embeddings | sentence-transformers/all-mpnet-base-v2, local 768-dim model |
+| Semantic search | PostgreSQL + pgvector document chunks |
+| Keyword search | BM25 via rank_bm25 |
+| Reranking | sentence-transformers cross-encoder |
+| Caching | Redis exact cache + pgvector semantic cache |
+| Web search | Google, Bing, DuckDuckGo fallback |
+
+> For a basic local demo, you only need Docker, `.env`, and one LLM API key. The RAG components run inside the backend.
 
 ---
 
