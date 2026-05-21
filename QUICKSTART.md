@@ -26,7 +26,7 @@ cp .env.example .env
 Run this command and copy the output into your `.env` file:
 
 ```bash
-python -c "import secrets; print(f'JWT_SECRET_KEY={secrets.token_urlsafe(32)}\nENCRYPTION_KEY={secrets.token_urlsafe(32)}\nREDIS_PASSWORD={secrets.token_urlsafe(16)}\nPOSTGRES_PASSWORD={secrets.token_urlsafe(16)}')"
+python -c "import base64, secrets; print(f'JWT_SECRET_KEY={secrets.token_hex(32)}\nENCRYPTION_KEY={base64.b64encode(secrets.token_bytes(32)).decode()}\nREDIS_PASSWORD={secrets.token_urlsafe(16)}\nPOSTGRES_PASSWORD={secrets.token_urlsafe(16)}')"
 ```
 
 ### 3. Start Everything
@@ -51,6 +51,9 @@ docker compose logs -f backend
 ```bash
 # Seed demo users + topic guard patterns
 make seed
+
+# If you do not have make:
+docker compose exec backend python -m scripts.seed_demo
 ```
 
 **Copy the generated credentials from the terminal output!**
@@ -80,7 +83,9 @@ cd Chatbot_Enterprise-AI
 cp backend/.env.example backend/.env
 
 # Generate secrets (copy output to backend/.env)
-python -c "import secrets; print(f'JWT_SECRET_KEY={secrets.token_urlsafe(32)}\nENCRYPTION_KEY={secrets.token_urlsafe(32)}')"
+python -c "import base64, secrets; print(f'JWT_SECRET_KEY={secrets.token_hex(32)}\nENCRYPTION_KEY={base64.b64encode(secrets.token_bytes(32)).decode()}')"
+
+# For local demo seeding, keep ENVIRONMENT=development.
 
 # Install dependencies
 cd backend

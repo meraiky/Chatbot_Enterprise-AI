@@ -13,7 +13,6 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import List, Tuple, Optional
 
 from rank_bm25 import BM25Okapi
 
@@ -23,13 +22,17 @@ logger = logging.getLogger(__name__)
 CACHE_DIR = Path(__file__).resolve().parents[3] / "data" / "bm25_cache"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
+# Module-level cache: avoids rebuilding BM25Okapi from disk JSON on every query.
+# Keyed by "{mode}_{corpus_hash}" — evicted when corpus changes for that mode.
+_mem_cache: dict[str, BM25Searcher] = {}
 
-def tokenize(text: str) -> List[str]:
+
+def tokenize(text: str) -> list[str]:
     """Simple tokenizer for BM25."""
     return re.findall(r'\w+', text.lower())
 
 
-def _compute_corpus_hash(corpus: List[str]) -> str:
+def _compute_corpus_hash(corpus: list[str]) -> str:
     """H-7 fix: Sort short per-doc hashes instead of full text — O(n log n) with small constants.
 
     Sorting the full corpus strings is O(n * L * log n) where L is avg doc length.
@@ -47,7 +50,7 @@ class BM25Searcher:
     changes, the index is automatically rebuilt and saved.
     """
     
-    def __init__(self, corpus: List[str], mode: str = "default"):
+    def __init__(self, corpus: list[str], mode: str = "default"):
         """
         Initialize BM25 searcher with optional disk caching.
         
@@ -60,7 +63,7 @@ class BM25Searcher:
         self.corpus_hash = _compute_corpus_hash(corpus)
         self.cache_path = CACHE_DIR / f"bm25_{mode}_{self.corpus_hash}.json"
         self.tokenized_corpus = [tokenize(doc) for doc in corpus]
-        self.bm25: Optional[BM25Okapi] = None
+        self.bm25: BM25Okapi | None = None
 
         if not self.tokenized_corpus:
             logger.info("Skipping BM25 index for mode=%s because corpus is empty", mode)
@@ -75,13 +78,13 @@ class BM25Searcher:
             self.bm25 = BM25Okapi(self.tokenized_corpus)
             self._save_to_cache()
 
-    def _load_from_cache(self) -> Optional[BM25Okapi]:
+    def _load_from_cache(self) -> BM25Okapi | None:
         """Load BM25 index from disk cache."""
         if not self.cache_path.exists():
             return None
 
         try:
-            with open(self.cache_path, "r", encoding="utf-8") as f:
+            with open(self.cache_path, encoding="utf-8") as f:
                 data = json.load(f)
 
             if data.get("corpus_hash") != self.corpus_hash or data.get("mode") != self.mode:
@@ -123,7 +126,7 @@ class BM25Searcher:
         except Exception as e:
             logger.warning("Failed to save BM25 cache: %s", e)
 
-    def search(self, query: str, k: int = 5) -> List[Tuple[int, float]]:
+    def search(self, query: str, k: int = 5) -> list[tuple[int, float]]:
         """
         Search the corpus for the top k most relevant documents.
         Returns a list of (index, score) tuples.
@@ -144,7 +147,7 @@ class BM25Searcher:
         return [(i, scores[i]) for i in top_n if scores[i] > 0]
 
     @staticmethod
-    def clear_cache(mode: Optional[str] = None) -> int:
+    def clear_cache(mode: str | None = None) -> int:
         """
         Clear BM25 cache files.
         
@@ -176,3 +179,24 @@ class BM25Searcher:
             "files": len(files),
             "size_bytes": sum(path.stat().st_size for path in files if path.exists()),
         }
+
+
+def get_or_build_searcher(corpus: list[str], mode: str) -> BM25Searcher:
+    """Return a cached BM25Searcher, rebuilding only when corpus changes.
+
+    Avoids reconstructing BM25Okapi from disk JSON on every query call.
+    Old entries for the same mode are evicted when the corpus hash changes.
+    """
+    corpus_hash = _compute_corpus_hash(corpus)
+    cache_key = f"{mode}_{corpus_hash}"
+
+    if cache_key in _mem_cache:
+        return _mem_cache[cache_key]
+
+    # Evict stale entries for this mode before inserting the new one
+    for stale in [k for k in _mem_cache if k.startswith(f"{mode}_") and k != cache_key]:
+        del _mem_cache[stale]
+
+    searcher = BM25Searcher(corpus, mode=mode)
+    _mem_cache[cache_key] = searcher
+    return searcher

@@ -25,6 +25,7 @@ Edit `.env`:
 ```env
 JWT_SECRET_KEY=<generated-secret>
 ENCRYPTION_KEY=<generated-32-byte-base64-key>
+ENVIRONMENT=development
 REDIS_PASSWORD=<generated-redis-password>
 DATABASE_URL=postgresql://postgres:postgres@db:5432/aiagent_db
 REDIS_URL=redis://:<generated-redis-password>@redis:6379/0
@@ -45,20 +46,21 @@ docker compose up --build -d
 docker compose logs -f backend   # wait for "Application startup complete"
 ```
 
-Run migrations and seed demo data:
+Seed demo data after the backend prints "Application startup complete".
+Migrations run automatically on backend startup:
 
 ```powershell
-docker compose exec backend alembic upgrade head
 docker compose exec backend python -m scripts.seed_demo
 ```
 
 Add an LLM API key (required to get chat answers):
 
-Open `http://localhost:8000/docs` → Authorize as `admin / admin1234` → `POST /api/v1/admin/keys`
+Open `http://localhost:3000`, log in with the generated admin credentials
+printed by `seed_demo`, then go to Admin -> API Keys.
 
 Open:
 
-- Frontend: `http://localhost:3000`  (log in: `admin / admin1234`)
+- Frontend: `http://localhost:3000`
 - Backend docs: `http://localhost:8000/docs`
 - Health: `http://localhost:8000/health`
 

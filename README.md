@@ -5,7 +5,7 @@
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
 [![Node 20](https://img.shields.io/badge/node-20-green.svg)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/docker-compose-blue.svg?logo=docker)](docker-compose.yml)
-[![Alembic](https://img.shields.io/badge/migrations-17_alembic-green.svg)](backend/migrations/)
+[![Alembic](https://img.shields.io/badge/migrations-18_alembic-green.svg)](backend/migrations/)
 
 A production-ready RAG chatbot for internal knowledge bases — hybrid retrieval, multi-model LLM routing, two-layer caching, and a full admin dashboard.
 
@@ -120,6 +120,7 @@ Minimum `.env` values to set:
 ```env
 JWT_SECRET_KEY=<generated above>
 ENCRYPTION_KEY=<generated above>
+ENVIRONMENT=development
 DATABASE_URL=postgresql://postgres:postgres@db:5432/aiagent_db   # default for Docker
 ```
 
@@ -127,11 +128,12 @@ DATABASE_URL=postgresql://postgres:postgres@db:5432/aiagent_db   # default for D
 # 2. Start the stack (first run downloads ~420 MB sentence-transformers model — be patient)
 docker compose up --build -d
 
-# 3. Wait for backend to be healthy, then run migrations
-docker compose exec backend alembic upgrade head
+# 3. Wait for backend to be healthy.
+# Migrations run automatically on backend startup.
 
 # 4. Seed demo users and topic-guard patterns
 make seed
+# If you do not have make: docker compose exec backend python -m scripts.seed_demo
 # ⚠️ IMPORTANT: Copy the generated passwords from terminal output!
 
 # 5. Add an LLM API key via the Admin UI
@@ -213,7 +215,7 @@ Chatbot_Enterprise-AI/
 │   │       ├── topic_guard    injection + off-topic blocking
 │   │       ├── web_search     Google · Bing · DuckDuckGo fallback
 │   │       └── usage_tracker  token accounting
-│   ├── migrations/        17 Alembic migrations
+│   ├── migrations/        18 Alembic migrations
 │   ├── tests/             unit/ + integration/
 │   └── Dockerfile
 ├── frontend/

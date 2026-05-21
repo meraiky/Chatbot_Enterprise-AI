@@ -23,7 +23,7 @@ echo ========================================
 echo Backend API:  http://localhost:8000/docs
 echo Frontend UI:  http://localhost:3000
 echo.
-echo After seed (make seed): admin / admin1234
+echo After seed: use the credentials printed by scripts.seed_demo
 echo ========================================
 echo.
 echo Press any key to STOP all services...

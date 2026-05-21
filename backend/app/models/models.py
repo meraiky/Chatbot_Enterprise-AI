@@ -1,7 +1,21 @@
-from sqlalchemy import Column, Integer, Text, Boolean, DateTime, JSON, String, func
-from sqlalchemy.sql import func as sql_func
 from pgvector.sqlalchemy import Vector
+from sqlalchemy import JSON, Boolean, Column, DateTime, Integer, Text
+from sqlalchemy.sql import func as sql_func
+
 from app.models.base import Base
+
+
+class ConversationMemory(Base):
+    """AgentMemory — persists conversation turns for context recall."""
+    __tablename__ = "conversation_memory"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    conversation_id = Column(Text, nullable=False, index=True)
+    role = Column(Text, nullable=False)         # 'user' | 'assistant'
+    content = Column(Text, nullable=False)
+    user_id = Column(Integer, index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=sql_func.now())
+
 
 class QACache(Base):
     __tablename__ = "qa_cache"

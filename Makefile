@@ -1,4 +1,4 @@
-.PHONY: help dev dev-build stop clean build test lint migrate setup seed logs
+.PHONY: help dev dev-hot stop clean build test lint migrate setup seed logs logs-backend eval
 
 help:
 	@echo ""
@@ -12,8 +12,8 @@ help:
 	@echo "  make migrate      Run Alembic migrations inside backend container"
 	@echo "  make test         Run backend unit tests"
 	@echo "  make lint         Lint backend with ruff"
-	@echo "  make setup        First-time setup: generate secrets + start services
-  make logs         Tail all service logs"
+	@echo "  make setup        First-time setup: generate secrets + start services"
+	@echo "  make logs         Tail all service logs"
 	@echo "  make seed         Seed demo users and topic-guard patterns"
 	@echo "  make eval         Run retrieval eval against golden_qa.json"
 	@echo ""
@@ -51,7 +51,7 @@ test:
 	docker compose run --rm backend pytest tests/unit/ -v --tb=short
 
 lint:
-	docker compose run --rm backend sh -c "pip install ruff -q && ruff check . --select E,F,I,UP,B,SIM --ignore S101,COM812,ISC001"
+	docker compose run --rm backend ruff check .
 
 logs:
 	docker compose logs -f

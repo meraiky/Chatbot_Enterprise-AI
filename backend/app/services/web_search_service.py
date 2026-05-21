@@ -1,13 +1,13 @@
 """Web Search Service with multi-provider support and caching"""
 
 from __future__ import annotations
-from abc import ABC, abstractmethod
-from typing import List, Dict, Optional, Tuple
+
 import hashlib
 import json
 import logging
-from datetime import datetime, timedelta, timezone
-from urllib.parse import quote
+from abc import ABC, abstractmethod
+from datetime import UTC, datetime, timedelta
+
 import httpx
 
 from app.core.database import get_conn
@@ -17,14 +17,14 @@ from app.services.rag.injection_scanner import scan_chunk
 logger = logging.getLogger(__name__)
 
 # Search result structure
-SearchResult = Dict[str, str]  # {"url": str, "title": str, "snippet": str}
+SearchResult = dict[str, str]  # {"url": str, "title": str, "snippet": str}
 
 
 class WebSearchProvider(ABC):
     """Abstract base class for web search providers"""
 
     @abstractmethod
-    async def search(self, query: str, num_results: int = 5) -> List[SearchResult]:
+    async def search(self, query: str, num_results: int = 5) -> list[SearchResult]:
         """Search and return results"""
         pass
 
@@ -40,15 +40,16 @@ class DuckDuckGoProvider(WebSearchProvider):
     def name(self) -> str:
         return "duckduckgo"
 
-    async def search(self, query: str, num_results: int = 5) -> List[SearchResult]:
+    async def search(self, query: str, num_results: int = 5) -> list[SearchResult]:
         """
         Search using duckduckgo-search library (more reliable than Instant Answer API).
         Falls back to Instant Answer API if library unavailable.
         """
         # Try duckduckgo-search library first (much more reliable)
         try:
-            from ddgs import DDGS
             import asyncio
+
+            from ddgs import DDGS
 
             def _ddg_search():
                 with DDGS() as ddgs:
@@ -69,9 +70,14 @@ class DuckDuckGoProvider(WebSearchProvider):
                 logger.info("DuckDuckGo (library) returned %d results", len(results))
                 return results[:num_results]
         except ImportError:
-            logger.warning("duckduckgo-search library not installed, falling back to Instant Answer API")
+            logger.warning(
+                "duckduckgo-search library not installed, falling back to Instant Answer API"
+            )
         except Exception as e:
-            logger.warning(f"DuckDuckGo library search failed ({e}), falling back to Instant Answer API")
+            logger.warning(
+                "DuckDuckGo library search failed (%s), falling back to Instant Answer API",
+                e,
+            )
 
         # Fallback: Instant Answer API (limited but no extra dependency)
         try:
@@ -127,7 +133,7 @@ class GoogleSearchProvider(WebSearchProvider):
     def name(self) -> str:
         return "google"
 
-    async def search(self, query: str, num_results: int = 5) -> List[SearchResult]:
+    async def search(self, query: str, num_results: int = 5) -> list[SearchResult]:
         """Search using Google Custom Search API"""
         if not self.api_key or not self.cx:
             logger.warning("Google Search API key or CX not configured")
@@ -172,7 +178,7 @@ class BingSearchProvider(WebSearchProvider):
     def name(self) -> str:
         return "bing"
 
-    async def search(self, query: str, num_results: int = 5) -> List[SearchResult]:
+    async def search(self, query: str, num_results: int = 5) -> list[SearchResult]:
         """Search using Bing Search API"""
         if not self.api_key:
             logger.warning("Bing Search API key not configured")
@@ -212,17 +218,17 @@ class BingSearchProvider(WebSearchProvider):
 class WebSearchService:
     """Web search service with caching and multi-provider support"""
 
-    def __init__(self, providers: List[WebSearchProvider]):
+    def __init__(self, providers: list[WebSearchProvider]):
         self.providers = providers
         self.default_ttl_days = 7
 
     async def search_with_cache(
         self,
         query: str,
-        user_id: Optional[int] = None,
-        ttl_days: Optional[int] = None,
+        user_id: int | None = None,
+        ttl_days: int | None = None,
         force_refresh: bool = False
-    ) -> Dict:
+    ) -> dict:
         """
         Search web with caching
         
@@ -244,7 +250,10 @@ class WebSearchService:
             return {
                 "cached": False,
                 "results": [],
-                "answer": "Your query was blocked because it contains patterns that resemble prompt injection.",
+                "answer": (
+                    "Your query was blocked because it contains patterns that resemble "
+                    "prompt injection."
+                ),
                 "sources": [],
             }
 
@@ -290,7 +299,7 @@ class WebSearchService:
             "sources": sources
         }
 
-    async def _search_multi_provider(self, query: str) -> List[SearchResult]:
+    async def _search_multi_provider(self, query: str) -> list[SearchResult]:
         """Try multiple providers with fallback"""
         for provider in self.providers:
             try:
@@ -309,9 +318,9 @@ class WebSearchService:
     async def _synthesize_answer(
         self,
         query: str,
-        results: List[SearchResult],
-        user_id: Optional[int] = None
-    ) -> Tuple[str, List[Dict]]:
+        results: list[SearchResult],
+        user_id: int | None = None
+    ) -> tuple[str, list[dict]]:
         """
         Use LLM to synthesize answer from search results
         Returns: (answer_text, sources_used)
@@ -391,35 +400,34 @@ Answer:"""
             ]
             return fallback_answer, fallback_sources
 
-    def _get_cached_result(self, query_hash: str) -> Optional[Dict]:
+    def _get_cached_result(self, query_hash: str) -> dict | None:
         """Get cached search result from database"""
         try:
-            with get_conn() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("""
+            with get_conn() as conn, conn.cursor() as cur:
+                cur.execute("""
                         SELECT search_results, answer, sources, created_at
                         FROM external_search_cache
                         WHERE query_hash = %s 
                           AND expires_at > NOW()
                     """, (query_hash,))
-                    row = cur.fetchone()
+                row = cur.fetchone()
 
-                    if row:
-                        # Update hit count and last accessed
-                        cur.execute("""
+                if row:
+                    # Update hit count and last accessed
+                    cur.execute("""
                             UPDATE external_search_cache
                             SET hit_count = hit_count + 1,
                                 last_accessed = NOW()
                             WHERE query_hash = %s
                         """, (query_hash,))
 
-                        return {
-                            "search_results": row[0],
-                            "answer": row[1],
-                            "sources": row[2]
-                        }
+                    return {
+                        "search_results": row[0],
+                        "answer": row[1],
+                        "sources": row[2],
+                    }
 
-                    return None
+                return None
 
         except Exception as e:
             logger.error(f"Failed to get cached result: {e}")
@@ -429,16 +437,15 @@ Answer:"""
         self,
         query_hash: str,
         query: str,
-        results: List[SearchResult],
+        results: list[SearchResult],
         answer: str,
-        sources: List[Dict],
+        sources: list[dict],
         ttl_days: int
     ) -> None:
         """Cache search result in database"""
         try:
-            with get_conn() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("""
+            with get_conn() as conn, conn.cursor() as cur:
+                cur.execute("""
                         INSERT INTO external_search_cache 
                         (query_hash, search_query, search_results, answer, sources, expires_at)
                         VALUES (%s, %s, %s, %s, %s, %s)
@@ -450,13 +457,13 @@ Answer:"""
                             hit_count = external_search_cache.hit_count + 1,
                             last_accessed = NOW()
                     """, (
-                        query_hash,
-                        "",
-                        json.dumps(results),
-                        answer,
-                        json.dumps(sources),
-                        datetime.now(timezone.utc) + timedelta(days=ttl_days)
-                    ))
+                    query_hash,
+                    "",
+                    json.dumps(results),
+                    answer,
+                    json.dumps(sources),
+                    datetime.now(UTC) + timedelta(days=ttl_days),
+                ))
 
         except Exception as e:
             logger.error(f"Failed to cache result: {e}")
@@ -464,15 +471,14 @@ Answer:"""
     def cleanup_expired_cache(self) -> int:
         """Delete expired cache entries. Returns count of deleted rows."""
         try:
-            with get_conn() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("""
+            with get_conn() as conn, conn.cursor() as cur:
+                cur.execute("""
                         DELETE FROM external_search_cache
                         WHERE expires_at < NOW()
                     """)
-                    deleted = cur.rowcount
-                    logger.info(f"Cleaned up {deleted} expired cache entries")
-                    return deleted
+                deleted = cur.rowcount
+                logger.info(f"Cleaned up {deleted} expired cache entries")
+                return deleted
 
         except Exception as e:
             logger.error(f"Failed to cleanup cache: {e}")
@@ -490,7 +496,7 @@ def create_web_search_service() -> WebSearchService:
     """
     from app.core.config import settings
 
-    providers: List[WebSearchProvider] = []
+    providers: list[WebSearchProvider] = []
 
     # Add Google if configured (highest priority - most reliable)
     if hasattr(settings, "GOOGLE_SEARCH_API_KEY") and settings.GOOGLE_SEARCH_API_KEY:
@@ -502,7 +508,10 @@ def create_web_search_service() -> WebSearchService:
             ))
             logger.info("Web search: Google Custom Search enabled (primary provider)")
         else:
-            logger.warning("Web search: GOOGLE_SEARCH_API_KEY set but GOOGLE_SEARCH_CX missing - Google provider disabled")
+            logger.warning(
+                "Web search: GOOGLE_SEARCH_API_KEY set but GOOGLE_SEARCH_CX missing - "
+                "Google provider disabled"
+            )
 
     # Add Bing if configured (secondary fallback)
     if hasattr(settings, "BING_SEARCH_API_KEY") and settings.BING_SEARCH_API_KEY:

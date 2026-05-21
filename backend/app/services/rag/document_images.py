@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-from pathlib import Path
 from typing import Any
 
 import fitz
@@ -10,7 +9,6 @@ import psycopg2.extras
 from app.core.config import settings
 from app.core.database import get_conn
 from app.services.rag.source_storage import get_document_storage_dir
-
 
 MIN_IMAGE_BYTES = 2048
 
@@ -41,29 +39,32 @@ def ensure_document_images_table() -> None:
         _document_images_table_ready = True
         return
     
-    with get_conn() as connection:
-        with connection.cursor() as cur:
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS document_images (
-                    id SERIAL PRIMARY KEY,
-                    image_id TEXT NOT NULL UNIQUE,
-                    doc_id TEXT NOT NULL,
-                    source TEXT NOT NULL,
-                    mode TEXT NOT NULL,
-                    page INTEGER,
-                    image_index INTEGER NOT NULL,
-                    storage_path TEXT NOT NULL,
-                    content_type TEXT NOT NULL,
-                    size_bytes INTEGER NOT NULL,
-                    checksum TEXT NOT NULL,
-                    caption TEXT,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                )
-                """
+    with get_conn() as connection, connection.cursor() as cur:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS document_images (
+                id SERIAL PRIMARY KEY,
+                image_id TEXT NOT NULL UNIQUE,
+                doc_id TEXT NOT NULL,
+                source TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                page INTEGER,
+                image_index INTEGER NOT NULL,
+                storage_path TEXT NOT NULL,
+                content_type TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL,
+                checksum TEXT NOT NULL,
+                caption TEXT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
-            cur.execute("CREATE INDEX IF NOT EXISTS document_images_doc_id_idx ON document_images (doc_id)")
-            cur.execute("CREATE INDEX IF NOT EXISTS document_images_mode_idx ON document_images (mode)")
+            """
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS document_images_doc_id_idx ON document_images (doc_id)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS document_images_mode_idx ON document_images (mode)"
+        )
     
     _document_images_table_ready = True
 
@@ -106,7 +107,10 @@ def extract_and_store_pdf_images(
                 ext = str(base_image.get("ext") or "png").lower()
                 checksum = hashlib.sha256(image_bytes).hexdigest()
                 image_id = f"{doc_id}:image-{image_index + 1}"
-                storage_path = images_dir / f"page{page_number}-image{image_index + 1}-{checksum[:12]}.{ext}"
+                storage_path = (
+                    images_dir
+                    / f"page{page_number}-image{image_index + 1}-{checksum[:12]}.{ext}"
+                )
                 storage_path.write_bytes(image_bytes)
 
                 rows.append(
@@ -128,44 +132,43 @@ def extract_and_store_pdf_images(
 
     if rows and _enabled():
         ensure_document_images_table()
-        with get_conn() as connection:
-            with connection.cursor() as cur:
-                psycopg2.extras.execute_values(
-                    cur,
-                    """
-                    INSERT INTO document_images (
-                        image_id, doc_id, source, mode, page, image_index,
-                        storage_path, content_type, size_bytes, checksum, caption
-                    )
-                    VALUES %s
-                    ON CONFLICT (image_id) DO UPDATE SET
-                        source = EXCLUDED.source,
-                        mode = EXCLUDED.mode,
-                        page = EXCLUDED.page,
-                        image_index = EXCLUDED.image_index,
-                        storage_path = EXCLUDED.storage_path,
-                        content_type = EXCLUDED.content_type,
-                        size_bytes = EXCLUDED.size_bytes,
-                        checksum = EXCLUDED.checksum,
-                        caption = EXCLUDED.caption
-                    """,
-                    [
-                        (
-                            row["image_id"],
-                            row["doc_id"],
-                            row["source"],
-                            row["mode"],
-                            row["page"],
-                            row["image_index"],
-                            row["storage_path"],
-                            row["content_type"],
-                            row["size_bytes"],
-                            row["checksum"],
-                            row["caption"],
-                        )
-                        for row in rows
-                    ],
+        with get_conn() as connection, connection.cursor() as cur:
+            psycopg2.extras.execute_values(
+                cur,
+                """
+                INSERT INTO document_images (
+                    image_id, doc_id, source, mode, page, image_index,
+                    storage_path, content_type, size_bytes, checksum, caption
                 )
+                VALUES %s
+                ON CONFLICT (image_id) DO UPDATE SET
+                    source = EXCLUDED.source,
+                    mode = EXCLUDED.mode,
+                    page = EXCLUDED.page,
+                    image_index = EXCLUDED.image_index,
+                    storage_path = EXCLUDED.storage_path,
+                    content_type = EXCLUDED.content_type,
+                    size_bytes = EXCLUDED.size_bytes,
+                    checksum = EXCLUDED.checksum,
+                    caption = EXCLUDED.caption
+                """,
+                [
+                    (
+                        row["image_id"],
+                        row["doc_id"],
+                        row["source"],
+                        row["mode"],
+                        row["page"],
+                        row["image_index"],
+                        row["storage_path"],
+                        row["content_type"],
+                        row["size_bytes"],
+                        row["checksum"],
+                        row["caption"],
+                    )
+                    for row in rows
+                ],
+            )
 
     return rows
 
@@ -174,47 +177,48 @@ def list_document_images(doc_id: str) -> list[dict[str, Any]]:
     if not _enabled():
         return []
     ensure_document_images_table()
-    with get_conn() as connection:
-        with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                """
-                SELECT image_id, doc_id, source, mode, page, image_index,
-                       storage_path, content_type, size_bytes, checksum,
-                       caption, created_at
-                FROM document_images
-                WHERE doc_id = %s
-                ORDER BY page NULLS LAST, image_index
-                """,
-                (doc_id,),
-            )
-            return [dict(row) for row in cur.fetchall()]
+    with get_conn() as connection, connection.cursor(
+        cursor_factory=psycopg2.extras.RealDictCursor
+    ) as cur:
+        cur.execute(
+            """
+            SELECT image_id, doc_id, source, mode, page, image_index,
+                   storage_path, content_type, size_bytes, checksum,
+                   caption, created_at
+            FROM document_images
+            WHERE doc_id = %s
+            ORDER BY page NULLS LAST, image_index
+            """,
+            (doc_id,),
+        )
+        return [dict(row) for row in cur.fetchall()]
 
 
 def get_document_image(image_id: str) -> dict[str, Any] | None:
     if not _enabled():
         return None
     ensure_document_images_table()
-    with get_conn() as connection:
-        with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                """
-                SELECT image_id, doc_id, source, mode, page, image_index,
-                       storage_path, content_type, size_bytes, checksum,
-                       caption, created_at
-                FROM document_images
-                WHERE image_id = %s
-                """,
-                (image_id,),
-            )
-            row = cur.fetchone()
-            return dict(row) if row else None
+    with get_conn() as connection, connection.cursor(
+        cursor_factory=psycopg2.extras.RealDictCursor
+    ) as cur:
+        cur.execute(
+            """
+            SELECT image_id, doc_id, source, mode, page, image_index,
+                   storage_path, content_type, size_bytes, checksum,
+                   caption, created_at
+            FROM document_images
+            WHERE image_id = %s
+            """,
+            (image_id,),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
 
 
 def delete_document_images(doc_id: str) -> int:
     if not _enabled():
         return 0
     ensure_document_images_table()
-    with get_conn() as connection:
-        with connection.cursor() as cur:
-            cur.execute("DELETE FROM document_images WHERE doc_id = %s", (doc_id,))
-            return int(cur.rowcount or 0)
+    with get_conn() as connection, connection.cursor() as cur:
+        cur.execute("DELETE FROM document_images WHERE doc_id = %s", (doc_id,))
+        return int(cur.rowcount or 0)
