@@ -1,21 +1,42 @@
-MIT License
+Commercial Source License
 
-Copyright (c) 2026 Enterprise AI Chatbot Contributors
+Copyright (c) 2026 Enterprise AI Chatbot.
+All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This software and its source code are proprietary commercial materials.
+They are not open source and are not licensed under the MIT License,
+Apache License, GPL, or any other open-source license.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+Permission to access, copy, run, modify, deploy, or use this software is
+granted only to customers or evaluators who have received explicit written
+permission from the copyright holder under a separate purchase agreement,
+private repository invitation, invoice, order confirmation, or signed license
+agreement.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+Unless a separate written agreement says otherwise, the licensee may:
+
+1. Use the software for internal business purposes.
+2. Modify the source code for its own internal deployment.
+3. Deploy the software on infrastructure controlled by the licensee.
+4. Create internal backups and private forks for operational continuity.
+
+The licensee may not:
+
+1. Redistribute, publish, leak, sublicense, resell, rent, or share the source
+   code with any third party.
+2. Upload the source code to a public repository, public package registry, or
+   public file-sharing service.
+3. Remove copyright, license, or attribution notices.
+4. Use this software to build a competing source-code resale product.
+5. Transfer access to another person or organization without written approval.
+
+All third-party dependencies remain governed by their own licenses.
+
+The software is provided "as is", without warranty of any kind, express or
+implied, including but not limited to warranties of merchantability, fitness
+for a particular purpose, and non-infringement. In no event shall the copyright
+holder be liable for any claim, damages, or other liability arising from the
+software or its use.
+
+For commercial licensing, support, or private source access, use the contact
+details provided by the seller or project owner.

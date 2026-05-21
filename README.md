@@ -1,7 +1,7 @@
 # Enterprise AI Chatbot
 
 [![CI](https://github.com/meraiky/Chatbot_Enterprise-AI/actions/workflows/ci.yml/badge.svg)](https://github.com/meraiky/Chatbot_Enterprise-AI/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: Commercial](https://img.shields.io/badge/License-Commercial-red.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
 [![Node 20](https://img.shields.io/badge/node-20-green.svg)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/docker-compose-blue.svg?logo=docker)](docker-compose.yml)
@@ -10,6 +10,8 @@
 A self-hosted enterprise AI chatbot for internal knowledge bases. It includes document upload, RAG search, streaming chat, user/admin management, and encrypted LLM API key management.
 
 **New to this project? Start with [`QUICKSTART.md`](QUICKSTART.md) for a 5-minute setup guide.**
+
+> This is the commercial source edition. It is source-available to approved buyers only and is not open source. See [LICENSE](LICENSE) and [COMMERCIAL_LICENSE.md](COMMERCIAL_LICENSE.md).
 
 ---
 
@@ -248,8 +250,8 @@ Chatbot_Enterprise-AI/
 │   └── nginx.conf         SPA routing + /api/ proxy
 ├── docs/
 │   ├── architecture/      system design · RAG pipeline · infrastructure
-│   ├── setup/             run-local · database · web search
-│   └── audits/            project audit notes
+│   ├── setup/             onboarding · run-local · database · web search
+│   └── deployment/        production deployment guide
 ├── .github/workflows/     CI (test + lint) · CD (Docker push + deploy)
 ├── docker-compose.yml     full stack: backend · postgres · redis · frontend
 ├── docker-compose.dev.yml hot-reload overrides
@@ -294,12 +296,14 @@ Planned improvements:
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) — branch strategy, code style, commit convention, PR checklist.
+This is a private commercial source repository. Internal contributors should see [CONTRIBUTING.md](CONTRIBUTING.md) for branch strategy, code style, commit convention, and release checks.
 
 ## Security
 
-See [SECURITY.md](SECURITY.md) — vulnerability reporting and security design notes.
+See [SECURITY.md](SECURITY.md) for vulnerability reporting and security design notes.
 
 ## License
 
-[MIT](LICENSE)
+Commercial source license. See [LICENSE](LICENSE).
+
+For source access, private deployment packages, or licensing questions, see [BUY_SOURCE.md](BUY_SOURCE.md) and [CONTACT.md](CONTACT.md).

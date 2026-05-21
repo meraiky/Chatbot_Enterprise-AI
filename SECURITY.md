@@ -10,9 +10,12 @@
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-Send a private report to the maintainers:
-1. Use GitHub's [private security advisory](https://github.com/YOUR_USERNAME/Chatbot_Enterprise-AI/security/advisories/new) feature, or
-2. Email the maintainer directly with subject line: `[SECURITY] Chatbot_Enterprise-AI — <brief description>`
+Send a private report to the project owner or seller. If you have private
+GitHub repository access, use GitHub's private security advisory flow.
+Otherwise, use the commercial support or sales contact that granted you source
+access.
+
+Use subject line: `[SECURITY] Chatbot_Enterprise-AI - <brief description>`
 
 Include:
 - Description of the vulnerability

@@ -1,0 +1,6 @@
+ADDITIONAL_FIXES.md export-ignore
+CRITICAL_FIXES_PHASE3.md export-ignore
+LOGIC_AUDIT_REPORT.md export-ignore
+docs/audits/ export-ignore
+.github/ export-ignore
+.claude/ export-ignore
