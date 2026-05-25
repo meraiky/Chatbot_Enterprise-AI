@@ -307,3 +307,9 @@ See [SECURITY.md](SECURITY.md) for vulnerability reporting and security design n
 Commercial source license. See [LICENSE](LICENSE).
 
 For source access, private deployment packages, or licensing questions, see [BUY_SOURCE.md](BUY_SOURCE.md) and [CONTACT.md](CONTACT.md).
+
+---
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=meraiky/Chatbot_Enterprise-AI&type=Date)](https://star-history.com/#meraiky/Chatbot_Enterprise-AI&Date)
