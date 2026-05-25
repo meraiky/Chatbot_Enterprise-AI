@@ -312,4 +312,8 @@ For source access, private deployment packages, or licensing questions, see [BUY
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=meraiky/Chatbot_Enterprise-AI&type=Date)](https://star-history.com/#meraiky/Chatbot_Enterprise-AI&Date)
+[![GitHub Stars](https://img.shields.io/github/stars/meraiky/Chatbot_Enterprise-AI?style=social)](https://github.com/meraiky/Chatbot_Enterprise-AI/stargazers)
+
+If you find this useful, consider giving it a ⭐ — it helps others discover the project.
+
+[📈 View full star history chart →](https://star-history.com/#meraiky/Chatbot_Enterprise-AI&Date)
