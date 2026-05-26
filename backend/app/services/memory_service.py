@@ -8,7 +8,7 @@ Integrates with query_engine to provide conversation context for RAG queries.
 from __future__ import annotations
 
 import logging
-from typing import List, Dict, Any, Optional
+from typing import Any
 
 from app.core.config import settings
 from app.core.database import get_conn
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def store_conversation_turn(
-    conversation_id: str, role: str, content: str, user_id: Optional[int] = None
+    conversation_id: str, role: str, content: str, user_id: int | None = None
 ) -> None:
     if not conversation_id or not settings.DATABASE_URL:
         logger.debug("Skipping memory storage: no conversation_id or DATABASE_URL")
@@ -38,7 +38,11 @@ def store_conversation_turn(
         logger.error("Failed to store memory: %s", e)
 
 
-def recall_conversation_context(conversation_id: str, limit: int = 5) -> str:
+def recall_conversation_context(
+    conversation_id: str,
+    user_id: int,
+    limit: int = 5,
+) -> str:
     if not conversation_id or not settings.DATABASE_URL:
         return ""
 
@@ -48,11 +52,11 @@ def recall_conversation_context(conversation_id: str, limit: int = 5) -> str:
             cursor.execute(
                 """
                 SELECT role, content FROM conversation_memory
-                WHERE conversation_id = %s
+                WHERE conversation_id = %s AND user_id = %s
                 ORDER BY created_at DESC
                 LIMIT %s
                 """,
-                (conversation_id, limit),
+                (conversation_id, user_id, limit),
             )
             rows = cursor.fetchall()
 
@@ -96,7 +100,7 @@ def clear_conversation_memory(conversation_id: str | None = None) -> int:
         return 0
 
 
-def get_conversation_history(conversation_id: str, user_id: int, limit: int = 100) -> List[Dict[str, Any]]:
+def get_conversation_history(conversation_id: str, user_id: int, limit: int = 100) -> list[dict[str, Any]]:
     """Return messages for a conversation, scoped to the owning user."""
     if not conversation_id or not settings.DATABASE_URL:
         return []
@@ -128,7 +132,7 @@ def get_conversation_history(conversation_id: str, user_id: int, limit: int = 10
         return []
 
 
-def list_user_conversations(user_id: int, limit: int = 30) -> List[Dict[str, Any]]:
+def list_user_conversations(user_id: int, limit: int = 30) -> list[dict[str, Any]]:
     """
     Return the most recent conversations for a user.
     Each item has: conversation_id, title (first user message), last_at, message_count.

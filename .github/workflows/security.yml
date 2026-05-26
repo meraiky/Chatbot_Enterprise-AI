@@ -26,8 +26,7 @@ jobs:
 
     - name: Run Bandit security scan
       working-directory: ./backend
-      run: bandit -r app/ -f json -o bandit-report.json
-      continue-on-error: true
+      run: bandit -r app/ -f json -o bandit-report.json -lll
 
     - name: Upload Bandit report
       uses: actions/upload-artifact@v4
@@ -54,11 +53,12 @@ jobs:
     - name: Check Python dependencies
       working-directory: ./backend
       run: safety check --json
-      continue-on-error: true
 
   trivy-scan:
     runs-on: ubuntu-latest
-    
+    permissions:
+      security-events: write
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4

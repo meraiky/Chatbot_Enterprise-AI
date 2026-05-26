@@ -66,13 +66,12 @@ class PgVectorStore:
 
     def add_documents(self, documents: list[Document], ids: list[str]) -> None:
         embeddings = embed_texts([d.page_content for d in documents])
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                for doc, emb, chunk_id in zip(documents, embeddings, ids):
-                    m = doc.metadata
-                    doc_type = m.get("type") or m.get("mode") or "Internal"
-                    cur.execute(
-                        """
+        with get_conn() as conn, conn.cursor() as cur:
+            for doc, emb, chunk_id in zip(documents, embeddings, ids, strict=False):
+                m = doc.metadata
+                doc_type = m.get("type") or m.get("mode") or "Internal"
+                cur.execute(
+                    """
                         INSERT INTO document_chunks
                             (chunk_id, doc_id, content, metadata, embedding,
                              source, mode, doc_type, page, checksum, uploaded_at)
@@ -88,20 +87,20 @@ class PgVectorStore:
                             checksum = EXCLUDED.checksum,
                             uploaded_at = EXCLUDED.uploaded_at
                         """,
-                        (
-                            chunk_id,
-                            m.get("doc_id"),
-                            doc.page_content,
-                            json.dumps(m),
-                            _vec_literal(emb),
-                            m.get("source"),
-                            doc_type,
-                            doc_type,
-                            m.get("page"),
-                            m.get("checksum"),
-                            m.get("uploaded_at"),
-                        ),
-                    )
+                    (
+                        chunk_id,
+                        m.get("doc_id"),
+                        doc.page_content,
+                        json.dumps(m),
+                        _vec_literal(emb),
+                        m.get("source"),
+                        doc_type,
+                        doc_type,
+                        m.get("page"),
+                        m.get("checksum"),
+                        m.get("uploaded_at"),
+                    ),
+                )
 
     # ── Read ───────────────────────────────────────────────────────────────────
 
@@ -114,11 +113,10 @@ class PgVectorStore:
         q_vec = _vec_literal(embed_query(query))
         doc_type = (filter or {}).get("type")
 
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                if doc_type:
-                    cur.execute(
-                        """
+        with get_conn() as conn, conn.cursor() as cur:
+            if doc_type:
+                cur.execute(
+                    """
                         SELECT content, metadata,
                                1 - (embedding <=> %s::vector) AS score
                         FROM   document_chunks
@@ -126,20 +124,20 @@ class PgVectorStore:
                         ORDER  BY embedding <=> %s::vector
                         LIMIT  %s
                         """,
-                        (q_vec, doc_type, q_vec, k),
-                    )
-                else:
-                    cur.execute(
-                        """
+                    (q_vec, doc_type, q_vec, k),
+                )
+            else:
+                cur.execute(
+                    """
                         SELECT content, metadata,
                                1 - (embedding <=> %s::vector) AS score
                         FROM   document_chunks
                         ORDER  BY embedding <=> %s::vector
                         LIMIT  %s
                         """,
-                        (q_vec, q_vec, k),
-                    )
-                rows = cur.fetchall()
+                    (q_vec, q_vec, k),
+                )
+            rows = cur.fetchall()
 
         return [
             (
@@ -159,13 +157,12 @@ class PgVectorStore:
 
         Returns: {"documents": [str, ...], "metadatas": [dict, ...]}
         """
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT content, metadata FROM document_chunks WHERE doc_type = %s",
-                    (doc_type,),
-                )
-                rows = cur.fetchall()
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT content, metadata FROM document_chunks WHERE doc_type = %s",
+                (doc_type,),
+            )
+            rows = cur.fetchall()
 
         return {
             "documents": [r[0] for r in rows],
@@ -180,10 +177,9 @@ class PgVectorStore:
 
         Returns: {"metadatas": [dict, ...]}
         """
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT metadata FROM document_chunks ORDER BY id")
-                rows = cur.fetchall()
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute("SELECT metadata FROM document_chunks ORDER BY id")
+            rows = cur.fetchall()
 
         return {
             "metadatas": [
@@ -192,36 +188,33 @@ class PgVectorStore:
         }
 
     def count(self, doc_type: str | None = None) -> int:
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                if doc_type:
-                    cur.execute(
-                        "SELECT COUNT(*) FROM document_chunks WHERE doc_type = %s",
-                        (doc_type,),
-                    )
-                else:
-                    cur.execute("SELECT COUNT(*) FROM document_chunks")
-                row = cur.fetchone()
-                return int(row[0]) if row else 0
+        with get_conn() as conn, conn.cursor() as cur:
+            if doc_type:
+                cur.execute(
+                    "SELECT COUNT(*) FROM document_chunks WHERE doc_type = %s",
+                    (doc_type,),
+                )
+            else:
+                cur.execute("SELECT COUNT(*) FROM document_chunks")
+            row = cur.fetchone()
+            return int(row[0]) if row else 0
 
     # ── Delete ─────────────────────────────────────────────────────────────────
 
     def delete_by_doc_id(self, doc_id: str) -> int:
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "DELETE FROM document_chunks WHERE doc_id = %s", (doc_id,)
-                )
-                return cur.rowcount
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM document_chunks WHERE doc_id = %s", (doc_id,)
+            )
+            return cur.rowcount
 
     def delete_by_source_type(self, source: str, doc_type: str) -> int:
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "DELETE FROM document_chunks WHERE source = %s AND doc_type = %s",
-                    (source, doc_type),
-                )
-                return cur.rowcount
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM document_chunks WHERE source = %s AND doc_type = %s",
+                (source, doc_type),
+            )
+            return cur.rowcount
 
 
 _store: PgVectorStore | None = None

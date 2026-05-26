@@ -1,27 +1,28 @@
+import hashlib
+import logging
 import os
 import tempfile
-import logging
-import hashlib
 from pathlib import Path as FilePath
-from typing import Literal, List, Dict, Any
+from typing import Any, Literal
 
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Path as PathParam
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi import Path as PathParam
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
-from app.core.auth import get_current_admin, TokenData
 
+from app.core.auth import TokenData, get_current_admin
 from app.services.rag.data_ingestion import process_and_index_file
-from app.services.rag.document_registry import (
-    build_document_id,
-    delete_indexed_document,
-    list_indexed_documents,
-)
-from app.services.rag.document_mirror import rebuild_vector_from_mirror
 from app.services.rag.document_images import (
     delete_document_images,
     extract_and_store_pdf_images,
     get_document_image,
     list_document_images,
+)
+from app.services.rag.document_mirror import rebuild_vector_from_mirror
+from app.services.rag.document_registry import (
+    build_document_id,
+    delete_indexed_document,
+    list_indexed_documents,
 )
 from app.services.rag.ingestion_jobs import (
     delete_ingestion_job,
@@ -102,7 +103,7 @@ class DocumentListResponse(BaseModel):
         }
     )
 
-    documents: List[DocumentInfo]
+    documents: list[DocumentInfo]
 
 
 class DocumentModeSummary(BaseModel):
@@ -139,7 +140,15 @@ class UploadResponse(BaseModel):
     doc_id: str = Field(..., description="Generated unique ID for the document")
     chunks_indexed: int = Field(..., description="Number of chunks created and indexed")
     replaced_chunks: int = Field(..., description="Number of existing chunks replaced (if any)")
-    usage: Dict[str, Any] = Field(..., description="Token usage for the embedding process")
+    usage: dict[str, Any] = Field(..., description="Token usage for the embedding process")
+
+
+class UploadAcceptedResponse(BaseModel):
+    """Response returned immediately when an upload is accepted for background indexing."""
+    message: str = Field(..., description="Status message")
+    doc_id: str = Field(..., description="Generated unique ID for the document")
+    status: str = Field(..., description="Current ingestion status (queued/processing/indexed/failed)")
+    poll_url: str = Field(..., description="URL to poll for indexing progress")
 
 class DeleteResponse(BaseModel):
     """Response for successful document deletion."""
@@ -225,7 +234,7 @@ async def list_documents(current_user: TokenData = Depends(get_current_admin)):
         return {"documents": list_indexed_documents()}
     except Exception:
         logger.exception("Failed to list indexed documents")
-        raise HTTPException(status_code=500, detail="Failed to retrieve document list.")
+        raise HTTPException(status_code=500, detail="Failed to retrieve document list.") from None
 
 
 @router.get("/summary", response_model=DocumentSummaryResponse)
@@ -245,7 +254,7 @@ async def document_summary(current_user: TokenData = Depends(get_current_admin))
         return summary
     except Exception:
         logger.exception("Failed to summarize indexed documents")
-        raise HTTPException(status_code=500, detail="Failed to retrieve document summary.")
+        raise HTTPException(status_code=500, detail="Failed to retrieve document summary.") from None
 
 
 @router.get("/ingestion/{doc_id}", response_model=IngestionJobResponse)
@@ -303,14 +312,74 @@ async def rebuild_vector_store(
         return rebuild_vector_from_mirror(doc_id=doc_id, mode=mode)
     except Exception:
         logger.exception("Failed to rebuild vector store from mirror")
-        raise HTTPException(status_code=500, detail="Failed to rebuild vector store.")
+        raise HTTPException(status_code=500, detail="Failed to rebuild vector store.") from None
 
 
-@router.post("/upload", response_model=UploadResponse)
+def _run_indexing_background(
+    temp_file_path: str,
+    doc_id: str,
+    doc_type: str,
+    source_name: str,
+    checksum: str,
+    delete_after: bool = True,
+) -> None:
+    """Background task: extract images, run indexing, update ingestion job status.
+
+    delete_after=True  → upload path (temp file, always delete after indexing).
+    delete_after=False → reprocess path (permanent storage_path, must NOT delete).
+    """
+    try:
+        if FilePath(temp_file_path).suffix.lower() == ".pdf":
+            extracted_images = extract_and_store_pdf_images(
+                file_path=temp_file_path,
+                doc_id=doc_id,
+                source=source_name,
+                mode=doc_type,
+            )
+            if extracted_images:
+                update_ingestion_job(
+                    doc_id=doc_id,
+                    status="processing",
+                    progress=35,
+                    progress_message=f"Extracted {len(extracted_images)} image(s); indexing text.",
+                )
+        result = process_and_index_file(temp_file_path, doc_type, source_name, checksum)
+        update_ingestion_job(
+            doc_id=doc_id,
+            status="indexed",
+            progress=100,
+            progress_message="Document indexed successfully.",
+            chunks_indexed=result.get("chunks_indexed"),
+            replaced_chunks=result.get("replaced_chunks"),
+        )
+    except ValueError as e:
+        update_ingestion_job(
+            doc_id=doc_id,
+            status="failed",
+            progress=100,
+            progress_message="Document indexing failed.",
+            error_message=_public_upload_error(e),
+        )
+    except Exception as e:
+        logger.exception("Background indexing failed for %s", doc_id)
+        update_ingestion_job(
+            doc_id=doc_id,
+            status="failed",
+            progress=100,
+            progress_message="Document indexing failed.",
+            error_message=_public_upload_error(e),
+        )
+    finally:
+        if delete_after and os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
+
+
+@router.post("/upload", response_model=UploadAcceptedResponse, status_code=202)
 async def upload_document(
+    background_tasks: BackgroundTasks,
     doc_type: Literal["Internal", "External"] = Form(..., description="The target mode for the document"),
     file: UploadFile = File(..., description="The document file to be indexed"),
-    current_user: TokenData = Depends(get_current_admin)
+    current_user: TokenData = Depends(get_current_admin),
 ):
     """
     Upload and index a document into the RAG system.
@@ -335,6 +404,7 @@ async def upload_document(
     
     temp_file_path = ""
     doc_id: str | None = None  # M-4 fix: Declare before try block
+    bg_owns_temp = False
     try:
         # Read file and validate size
         file.file.seek(0)
@@ -376,75 +446,46 @@ async def upload_document(
             mode=doc_type,
             checksum=checksum,
             storage_path=storage_path,
-            status="processing",
-            progress=20,
-            progress_message="Source file saved; indexing document.",
+            status="queued",
+            progress=10,
+            progress_message="File validated and saved; indexing queued.",
         )
-        if suffix == ".pdf":
-            extracted_images = extract_and_store_pdf_images(
-                file_path=temp_file_path,
-                doc_id=doc_id,
-                source=source_name,
-                mode=doc_type,
-            )
-            if extracted_images:
-                update_ingestion_job(
-                    doc_id=doc_id,
-                    status="processing",
-                    progress=35,
-                    progress_message=f"Extracted {len(extracted_images)} image(s); indexing text.",
-                )
-
-        result = process_and_index_file(
+        background_tasks.add_task(
+            _run_indexing_background,
             temp_file_path,
+            doc_id,
             doc_type,
             source_name,
             checksum,
         )
-        update_ingestion_job(
-            doc_id=doc_id,
-            status="indexed",
-            progress=100,
-            progress_message="Document indexed successfully.",
-            chunks_indexed=result.get("chunks_indexed"),
-            replaced_chunks=result.get("replaced_chunks"),
-        )
-    except ValueError as e:
-        if doc_id is not None:  # M-4 fix: Use explicit None check
-            assert doc_id is not None  # Type narrowing for Pyrefly
-            update_ingestion_job(
-                doc_id=doc_id,
-                status="failed",
-                progress=100,
-                progress_message="Document indexing failed.",
-                error_message=_public_upload_error(e),
-            )
-        raise HTTPException(status_code=400, detail=_public_upload_error(e))
-    except Exception as e:
-        logger.exception("Failed to index uploaded document %s", source_name)
-        if doc_id is not None:  # M-4 fix: Use explicit None check
-            assert doc_id is not None  # Type narrowing for Pyrefly
-            update_ingestion_job(
-                doc_id=doc_id,
-                status="failed",
-                progress=100,
-                progress_message="Document indexing failed.",
-                error_message=_public_upload_error(e),
-            )
-        raise HTTPException(status_code=500, detail=_public_upload_error(e))
-    finally:
-        if temp_file_path and os.path.exists(temp_file_path):
+        bg_owns_temp = True  # background task owns cleanup now
+    except HTTPException:
+        if not bg_owns_temp and temp_file_path != "" and os.path.exists(temp_file_path):
             os.remove(temp_file_path)
+        raise
+    except ValueError as e:
+        if not bg_owns_temp and temp_file_path != "" and os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
+        raise HTTPException(status_code=400, detail=_public_upload_error(e)) from e
+    except Exception as e:
+        logger.exception("Failed to accept uploaded document %s", source_name)
+        if not bg_owns_temp and temp_file_path != "" and os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
+        raise HTTPException(status_code=500, detail=_public_upload_error(e)) from e
+    finally:
         await file.close()
 
     return {
-        "message": "Document uploaded and indexed successfully",
-        **result,
+        "message": "Document accepted and queued for indexing.",
+        "doc_id": doc_id,
+        "status": "queued",
+        "poll_url": f"/api/v1/document/ingestion/{doc_id}",
     }
 
 
-@router.post("/reprocess/{doc_id}", response_model=UploadResponse)
+@router.post("/reprocess/{doc_id}", response_model=UploadAcceptedResponse, status_code=202)
 async def reprocess_document(
+    background_tasks: BackgroundTasks,
     doc_id: str = PathParam(..., min_length=1, description="The document ID to re-index from stored source file"),
     current_user: TokenData = Depends(get_current_admin),
 ):
@@ -467,61 +508,27 @@ async def reprocess_document(
     doc_type = str(job.get("mode") or "Internal")
     checksum = str(job.get("checksum") or "")
 
-    try:
-        update_ingestion_job(
-            doc_id=doc_id,
-            status="processing",
-            progress=20,
-            progress_message="Re-indexing from stored source file.",
-        )
-        if FilePath(source_name).suffix.lower() == ".pdf":
-            assert storage_path is not None  # Type narrowing for Pyrefly
-            extracted_images = extract_and_store_pdf_images(
-                file_path=storage_path,
-                doc_id=doc_id,
-                source=source_name,
-                mode=doc_type,
-            )
-            if extracted_images:
-                update_ingestion_job(
-                    doc_id=doc_id,
-                    status="processing",
-                    progress=35,
-                    progress_message=f"Extracted {len(extracted_images)} image(s); indexing text.",
-                )
-        assert storage_path is not None  # Type narrowing for Pyrefly
-        result = process_and_index_file(storage_path, doc_type, source_name, checksum)
-        update_ingestion_job(
-            doc_id=doc_id,
-            status="indexed",
-            progress=100,
-            progress_message="Document re-indexed successfully.",
-            chunks_indexed=result.get("chunks_indexed"),
-            replaced_chunks=result.get("replaced_chunks"),
-        )
-    except ValueError as e:
-        update_ingestion_job(
-            doc_id=doc_id,
-            status="failed",
-            progress=100,
-            progress_message="Document re-indexing failed.",
-            error_message=_public_upload_error(e),
-        )
-        raise HTTPException(status_code=400, detail=_public_upload_error(e))
-    except Exception as e:
-        logger.exception("Failed to re-index stored document %s", doc_id)
-        update_ingestion_job(
-            doc_id=doc_id,
-            status="failed",
-            progress=100,
-            progress_message="Document re-indexing failed.",
-            error_message=_public_upload_error(e),
-        )
-        raise HTTPException(status_code=500, detail=_public_upload_error(e))
+    update_ingestion_job(
+        doc_id=doc_id,
+        status="queued",
+        progress=10,
+        progress_message="Re-index queued.",
+    )
+    background_tasks.add_task(
+        _run_indexing_background,
+        storage_path,
+        doc_id,
+        doc_type,
+        source_name,
+        checksum,
+        False,  # delete_after=False — storage_path is permanent, must not be deleted
+    )
 
     return {
-        "message": "Document re-indexed successfully",
-        **result,
+        "message": "Document accepted and queued for re-indexing.",
+        "doc_id": doc_id,
+        "status": "queued",
+        "poll_url": f"/api/v1/document/ingestion/{doc_id}",
     }
 
 
@@ -540,7 +547,7 @@ async def delete_document(
         deleted_chunks = delete_indexed_document(doc_id)
     except Exception:
         logger.exception("Failed to delete indexed document %s", doc_id)
-        raise HTTPException(status_code=500, detail="Failed to delete document.")
+        raise HTTPException(status_code=500, detail="Failed to delete document.") from None
 
     if deleted_chunks == 0:
         raise HTTPException(status_code=404, detail="Document was not found.")

@@ -4,23 +4,23 @@ import time
 from datetime import timedelta
 
 import redis
-from fastapi import APIRouter, HTTPException, Depends, status, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.auth import (
+    ACCESS_TOKEN_EXPIRE_MINUTES,
+    REFRESH_TOKEN_EXPIRE_DAYS,
+    TokenData,
     create_access_token,
     create_refresh_token,
     decode_refresh_token,
+    get_current_admin,
     get_current_user,
+    oauth2_scheme,
     revoke_access_token,
     verify_password,
-    TokenData,
-    ACCESS_TOKEN_EXPIRE_MINUTES,
-    REFRESH_TOKEN_EXPIRE_DAYS,
-    get_current_admin,
-    oauth2_scheme,
 )
 from app.core.config import settings
 from app.core.database import get_conn
@@ -197,10 +197,9 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
     
     # 1. Fetch user from DB
     sql = "SELECT id, username, hashed_password, role, is_active, can_manage_models FROM users WHERE username = %s"
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(sql, (form_data.username,))
-            user = cur.fetchone()
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(sql, (form_data.username,))
+        user = cur.fetchone()
 
     if not user:
         raise HTTPException(
@@ -332,13 +331,12 @@ async def create_admin_user(body: UserCreate):
     hashed_pw = get_password_hash(body.password)
     sql = "INSERT INTO users (username, hashed_password, role, can_manage_models) VALUES (%s, %s, %s, true) RETURNING id"
     try:
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(sql, (body.username, hashed_pw, "admin"))
-                result = cur.fetchone()
-                if not result:
-                    raise HTTPException(status_code=400, detail="Failed to create user")
-                user_id = result[0]
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute(sql, (body.username, hashed_pw, "admin"))
+            result = cur.fetchone()
+            if not result:
+                raise HTTPException(status_code=400, detail="Failed to create user")
+            user_id = result[0]
         return {"id": user_id, "username": body.username, "role": "admin", "can_manage_models": True}
     except Exception as e:
         try:

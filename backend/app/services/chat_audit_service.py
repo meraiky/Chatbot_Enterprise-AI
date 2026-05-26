@@ -11,10 +11,9 @@ from app.services.pii_redactor import redact
 
 
 def _ensure_chat_audit_table() -> None:
-    with get_conn() as connection:
-        with connection.cursor() as cur:
-            cur.execute(
-                """
+    with get_conn() as connection, connection.cursor() as cur:
+        cur.execute(
+            """
                 CREATE TABLE IF NOT EXISTS chat_audit (
                     id SERIAL PRIMARY KEY,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -30,9 +29,9 @@ def _ensure_chat_audit_table() -> None:
                     estimated BOOLEAN NOT NULL DEFAULT TRUE
                 )
                 """
-            )
-            cur.execute("CREATE INDEX IF NOT EXISTS chat_audit_conversation_id_idx ON chat_audit (conversation_id)")
-            cur.execute("CREATE INDEX IF NOT EXISTS chat_audit_created_at_idx ON chat_audit (created_at)")
+        )
+        cur.execute("CREATE INDEX IF NOT EXISTS chat_audit_conversation_id_idx ON chat_audit (conversation_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS chat_audit_created_at_idx ON chat_audit (created_at)")
 
 
 def record_chat_audit(
@@ -51,29 +50,28 @@ def record_chat_audit(
     if not settings.DATABASE_URL:
         return
     _ensure_chat_audit_table()
-    with get_conn() as connection:
-        with connection.cursor() as cur:
-            cur.execute(
-                """
+    with get_conn() as connection, connection.cursor() as cur:
+        cur.execute(
+            """
                 INSERT INTO chat_audit (
                     conversation_id, request_id, mode, question, answer, sources,
                     input_tokens, output_tokens, total_tokens, estimated
                 )
                 VALUES (%s, %s, %s, %s, %s, %s::json, %s, %s, %s, %s)
                 """,
-                (
-                    conversation_id,
-                    request_id,
-                    mode,
-                    question,
-                    answer,
-                    json.dumps(sources or [], ensure_ascii=False),
-                    input_tokens,
-                    output_tokens,
-                    total_tokens,
-                    estimated,
-                ),
-            )
+            (
+                conversation_id,
+                request_id,
+                mode,
+                question,
+                answer,
+                json.dumps(sources or [], ensure_ascii=False),
+                input_tokens,
+                output_tokens,
+                total_tokens,
+                estimated,
+            ),
+        )
 
 
 def list_conversation_summaries(limit: int = 100) -> list[dict[str, Any]]:
@@ -81,10 +79,9 @@ def list_conversation_summaries(limit: int = 100) -> list[dict[str, Any]]:
         return []
     _ensure_chat_audit_table()
     limit = min(max(limit, 1), 500)
-    with get_conn() as connection:
-        with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                """
+    with get_conn() as connection, connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """
                 SELECT
                     conversation_id,
                     COUNT(*) AS turns,
@@ -98,9 +95,9 @@ def list_conversation_summaries(limit: int = 100) -> list[dict[str, Any]]:
                 ORDER BY last_at DESC
                 LIMIT %s
                 """,
-                (limit,),
-            )
-            rows = cur.fetchall()
+            (limit,),
+        )
+        rows = cur.fetchall()
     return [
         {
             **dict(row),
@@ -127,10 +124,9 @@ def export_chat_audit(
         params.append(conversation_id)
     params.append(limit)
 
-    with get_conn() as connection:
-        with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                f"""
+    with get_conn() as connection, connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            f"""
                 SELECT created_at, conversation_id, request_id, mode, question, answer,
                        sources, input_tokens, output_tokens, total_tokens, estimated
                 FROM chat_audit
@@ -138,9 +134,9 @@ def export_chat_audit(
                 ORDER BY id DESC
                 LIMIT %s
                 """,
-                params,
-            )
-            rows = cur.fetchall()
+            params,
+        )
+        rows = cur.fetchall()
     records = [
         {
             **dict(row),

@@ -14,8 +14,8 @@ Usage:
 from __future__ import annotations
 
 import logging
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Generator
 
 import psycopg2
 import psycopg2.extras
@@ -77,18 +77,15 @@ def close_pool() -> None:
 
 def init_db() -> None:
     """Initialize database schema using Alembic migrations.
-    
-    CRITICAL FIX (C-3): Previously caught exceptions without re-raising, allowing the app
-    to start with broken schema. Now follows fail-fast principle: if migrations fail,
-    the app should not start.
-    
-    Raises:
-        RuntimeError: If migrations fail to apply
+
+    Raises RuntimeError if migrations fail — app must not start with partial schema.
+    Falls back to direct table creation only when alembic.ini is missing (dev/minimal setups).
     """
     try:
-        from alembic.config import Config
-        from alembic import command
         from pathlib import Path
+
+        from alembic import command
+        from alembic.config import Config
 
         ini_path = str(Path(__file__).resolve().parents[2] / "alembic.ini")
         
@@ -101,10 +98,10 @@ def init_db() -> None:
         command.upgrade(alembic_cfg, "head")
         logger.info("Database migrations applied successfully (upgraded to head).")
     except Exception as exc:
-        logger.exception("Failed to run database migrations: %s", exc)
-        # Fallback: create tables directly if migrations fail
-        logger.warning("Attempting direct table creation as fallback")
-        _create_tables_fallback()
+        logger.exception("Database migrations failed — refusing to start with partial schema: %s", exc)
+        raise RuntimeError(
+            f"Database migrations failed. Fix the migration error before starting the app: {exc}"
+        ) from exc
 
 
 def _create_tables_fallback() -> None:
@@ -230,19 +227,18 @@ def seed_initial_admin() -> None:
         return
 
     try:
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT COUNT(*) FROM users")
-                row = cur.fetchone()
-                if row and row[0] > 0:
-                    return  # users already exist, skip
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM users")
+            row = cur.fetchone()
+            if row and row[0] > 0:
+                return  # users already exist, skip
 
-                from app.core.auth import get_password_hash
-                cur.execute(
-                    """INSERT INTO users (username, hashed_password, role, is_active, can_manage_models)
+            from app.core.auth import get_password_hash
+            cur.execute(
+                """INSERT INTO users (username, hashed_password, role, is_active, can_manage_models)
                        VALUES (%s, %s, 'admin', TRUE, TRUE)""",
-                    (username, get_password_hash(password)),
-                )
+                (username, get_password_hash(password)),
+            )
         logger.info("First-run admin account created: username=%s", username)
     except Exception as exc:
         logger.error("Failed to seed initial admin: %s", exc)

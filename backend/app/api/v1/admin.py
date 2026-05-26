@@ -3,17 +3,20 @@
 All routes in this module require a valid JWT for a user with the admin role.
 """
 
-from typing import Literal, Optional, List, Dict, Any
-from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel, ConfigDict, Field
-from app.core.auth import get_current_admin
+from datetime import UTC
+from typing import Any, Literal
 
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.core.auth import get_current_admin
 from app.services import topic_guard_service
-from app.services.rag.cache_service import cache_service
 from app.services.rag.bm25_search import BM25Searcher
+from app.services.rag.cache_service import cache_service
 from app.services.rag.consistency import check_vector_consistency
 from app.services.rag.reranker import reranker
 from app.services.rag.vector_store import vector_store_health
+
 router = APIRouter()
 
 
@@ -37,8 +40,11 @@ class GuardCreate(BaseModel):
     )
 
     pattern: str = Field(..., min_length=1, description="Keyword or regex pattern to block", json_schema_extra={"example": "salary"})
-    mode: Optional[Literal["Internal", "External"]] = Field(None, description="Mode to apply the guard to. If None, applies to all modes.")
-    reason: Optional[str] = Field(None, min_length=1, description="Reason shown to the user when blocked", json_schema_extra={"example": "This topic is restricted."})
+    mode: Literal["Internal", "External"] | None = Field(None, description="Mode to apply the guard to. If None, applies to all modes.")
+    reason: str | None = Field(
+        None, min_length=1, description="Reason shown to the user when blocked",
+        json_schema_extra={"example": "This topic is restricted."},
+    )
     is_regex: bool = Field(False, description="Whether the pattern should be treated as a regular expression")
 
 
@@ -75,15 +81,15 @@ class GuardResponse(BaseModel):
 
     id: int
     pattern: str
-    mode: Optional[Literal["Internal", "External"]]
-    reason: Optional[str]
+    mode: Literal["Internal", "External"] | None
+    reason: str | None
     is_regex: bool
     is_active: bool
-    created_at: Optional[str]
+    created_at: str | None
 
 class GuardListResponse(BaseModel):
     """Response model for listing topic guards."""
-    guards: List[GuardResponse]
+    guards: list[GuardResponse]
 
 @router.get("/topic-guards", response_model=GuardListResponse, dependencies=[Depends(get_current_admin)])
 def list_topic_guards():
@@ -171,7 +177,7 @@ class CacheStatsResponse(BaseModel):
     total_entries: int = Field(..., description="Total number of cached Q&A pairs")
     total_hits: int = Field(..., description="Total number of times cache was hit")
     hit_rate: float = Field(..., description="Cache hit rate (0.0 to 1.0)")
-    top_questions: List[Dict[str, Any]] = Field(..., description="Most frequently hit cached question hashes")
+    top_questions: list[dict[str, Any]] = Field(..., description="Most frequently hit cached question hashes")
 
 @router.get("/qa-cache/stats", response_model=CacheStatsResponse, dependencies=[Depends(get_current_admin)])
 def get_cache_stats():
@@ -206,15 +212,15 @@ class RevokedTokensCleanupResponse(BaseModel):
 @router.delete("/revoked-tokens/expired", response_model=RevokedTokensCleanupResponse, dependencies=[Depends(get_current_admin)])
 def cleanup_expired_revoked_tokens():
     """Remove expired entries from the revoked_tokens table."""
-    from datetime import datetime, timezone
+    from datetime import datetime
+
     from app.core.database import get_conn
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "DELETE FROM revoked_tokens WHERE expires_at < %s",
-                (datetime.now(timezone.utc),)
-            )
-            deleted = cur.rowcount
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM revoked_tokens WHERE expires_at < %s",
+            (datetime.now(UTC),)
+        )
+        deleted = cur.rowcount
     return {"deleted": deleted}
 
 

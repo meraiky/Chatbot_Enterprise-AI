@@ -10,10 +10,7 @@
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-Send a private report to the project owner or seller. If you have private
-GitHub repository access, use GitHub's private security advisory flow.
-Otherwise, use the commercial support or sales contact that granted you source
-access.
+Use GitHub's private security advisory flow at the repository's Security tab, or email the maintainer directly.
 
 Use subject line: `[SECURITY] Chatbot_Enterprise-AI - <brief description>`
 

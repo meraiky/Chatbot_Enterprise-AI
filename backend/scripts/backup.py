@@ -8,7 +8,6 @@ This script creates a comprehensive backup of all persistent data:
 - SQLite usage database
 """
 
-import os
 import shutil
 import subprocess
 from datetime import datetime

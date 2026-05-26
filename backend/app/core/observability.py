@@ -7,10 +7,10 @@ and integrate them with the system logging and usage tracking.
 
 from __future__ import annotations
 
-import time
 import logging
+import time
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Generator, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -25,14 +25,14 @@ class Trace:
     def __init__(
         self, 
         span_name: str, 
-        request_id: Optional[str] = None, 
-        mode: Optional[str] = None
+        request_id: str | None = None, 
+        mode: str | None = None
     ):
         self.span_name = span_name
         self.request_id = request_id
         self.mode = mode
-        self.start_time: Optional[float] = None
-        self.duration: Optional[float] = None
+        self.start_time: float | None = None
+        self.duration: float | None = None
 
     def __enter__(self) -> Trace:
         self.start_time = time.perf_counter()
@@ -43,7 +43,7 @@ class Trace:
             self.duration = time.perf_counter() - self.start_time
             
             # Log the span duration
-            log_msg = "Span [%s] completed in %.4fs" % (self.span_name, self.duration)
+            log_msg = f"Span [{self.span_name}] completed in {self.duration:.4f}s"
             if self.request_id:
                 log_msg += f" | request_id={self.request_id}"
             if self.mode:
@@ -58,8 +58,8 @@ class Trace:
 @contextmanager
 def trace_span(
     span_name: str, 
-    request_id: Optional[str] = None, 
-    mode: Optional[str] = None
+    request_id: str | None = None, 
+    mode: str | None = None
 ) -> Generator[Trace, None, None]:
     """Convenience wrapper for the Trace context manager."""
     with Trace(span_name, request_id, mode) as trace:

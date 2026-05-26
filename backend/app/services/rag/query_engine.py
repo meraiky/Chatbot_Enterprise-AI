@@ -1,32 +1,33 @@
 import logging
 import re
 import unicodedata
-from typing import List, Dict, Optional, Any
+from typing import Any
+
 from langchain_core.documents import Document
 
 logger = logging.getLogger(__name__)
 
-from app.services.rag.vector_store import get_vector_store
-from app.services.rag.bm25_search import get_or_build_searcher
-from app.services.rag.reranker import reranker
-from app.services.llm_service import get_llm
+from langchain_core.prompts import ChatPromptTemplate
+
 from app.core.config import settings
+from app.core.observability import trace_span
+from app.services.chat_audit_service import record_chat_audit
+from app.services.llm_service import get_llm
+from app.services.memory_service import recall_conversation_context, store_conversation_turn
+from app.services.pricing_service import is_over_budget
+from app.services.rag.bm25_search import get_or_build_searcher
+from app.services.rag.cache_service import cache_service
+from app.services.rag.document_images import list_document_images
+from app.services.rag.injection_scanner import scan_chunk
+from app.services.rag.reranker import reranker
+from app.services.rag.vector_store import get_vector_store
+from app.services.topic_guard_service import check_topic_guard
 from app.services.usage_tracker import (
     estimate_tokens,
     new_request_id,
     normalize_usage,
     record_usage,
 )
-from app.services.chat_audit_service import record_chat_audit
-from app.services.rag.cache_service import cache_service
-from app.services.rag.document_images import list_document_images
-from app.services.topic_guard_service import check_topic_guard
-from app.core.observability import trace_span
-from langchain_core.prompts import ChatPromptTemplate
-from app.services.pricing_service import is_over_budget
-from app.services.rag.injection_scanner import scan_chunk
-from app.services.memory_service import store_conversation_turn, recall_conversation_context
-
 
 NO_CONTEXT_ANSWER = (
     "I don't have enough information to answer that based on my current knowledge base."
@@ -82,7 +83,7 @@ _OUT_OF_SCOPE_KEYWORDS = (
 # ---------------------------------------------------------------------------
 # Module-specific system prompts (inspired by Viet-ERP ai-service pattern)
 # ---------------------------------------------------------------------------
-_SYSTEM_PROMPTS: Dict[str, str] = {
+_SYSTEM_PROMPTS: dict[str, str] = {
     "Internal": (
         "You are an Enterprise Internal AI Assistant. "
         "Help employees with company policies, HR rules, internal processes, and confidential documents. "
@@ -230,7 +231,7 @@ def _rrf_fuse_results(
 
 def retrieve_context(question: str, mode: str, request_id: str, conversation_id: str | None = None):
     # Measure total retrieval time
-    with trace_span("total_retrieval", request_id=request_id, mode=mode) as total_trace:
+    with trace_span("total_retrieval", request_id=request_id, mode=mode):
         retrieval_usage = record_usage(
             request_id=request_id,
             operation="retrieval_embedding",
@@ -404,7 +405,7 @@ def _build_chain(mode: str, streaming: bool = False, user_id: int | None = None)
     return _build_prompt(mode) | get_llm(streaming=streaming, user_id=user_id)
 
 
-def _prepare_history(history: Optional[List[Dict[str, str]]]) -> str:
+def _prepare_history(history: list[dict[str, str]] | None) -> str:
     """
     Prepare conversation history within a token budget.
     Keeps the most recent useful turns and prunes older turns deterministically.
@@ -507,7 +508,7 @@ def _record_audit_from_usage(
 def answer_query(
     question: str,
     mode: str,
-    history: Optional[List[Dict[str, str]]] = None,
+    history: list[dict[str, str]] | None = None,
     conversation_id: str | None = None,
     user_id: int | None = None,
 ):
@@ -520,7 +521,7 @@ def answer_query(
     # AgentMemory: Recall server-side context as fallback when client sends no history
     memory_context = ""
     if conversation_id:
-        memory_context = recall_conversation_context(conversation_id, limit=5)
+        memory_context = recall_conversation_context(conversation_id, user_id=user_id or 0, limit=5)
         if memory_context:
             logger.debug("Recalled memory context for conversation %s", conversation_id)
 
@@ -748,7 +749,7 @@ def answer_query(
 def answer_query_stream(
     question: str,
     mode: str,
-    history: Optional[List[Dict[str, str]]] = None,
+    history: list[dict[str, str]] | None = None,
     conversation_id: str | None = None,
     user_id: int | None = None,
 ):
@@ -759,7 +760,7 @@ def answer_query_stream(
     request_id = new_request_id()
     history_text = _prepare_history(history)
     if not history and conversation_id:
-        mem = recall_conversation_context(conversation_id, limit=5)
+        mem = recall_conversation_context(conversation_id, user_id=user_id or 0, limit=5)
         if mem:
             history_text = mem
 
@@ -860,7 +861,7 @@ def answer_query_stream(
         return
 
     chain = _build_chain(mode, streaming=True, user_id=user_id)
-    full_reply: List[str] = []
+    full_reply: list[str] = []
     for chunk in chain.stream(
         {
             "context": context,
@@ -995,7 +996,7 @@ def _format_external_sources(sources: list[dict]) -> str:
 async def answer_query_hybrid(
     question: str,
     mode: str,
-    history: Optional[List[Dict[str, str]]] = None,
+    history: list[dict[str, str]] | None = None,
     conversation_id: str | None = None,
     user_id: int | None = None,
     allow_web_search: bool = False,
@@ -1004,7 +1005,7 @@ async def answer_query_hybrid(
     request_id = new_request_id()
     history_text = _prepare_history(history)
     if not history and conversation_id:
-        mem = recall_conversation_context(conversation_id, limit=5)
+        mem = recall_conversation_context(conversation_id, user_id=user_id or 0, limit=5)
         if mem:
             history_text = mem
 
@@ -1060,7 +1061,10 @@ async def answer_query_hybrid(
                     router = ModelRouter(user_id)
                     selection = router.select()
                     if selection:
-                        logger.info(f"[HYBRID RAG] request_id={request_id} user_id={user_id} using MODEL: {selection.model_name} (provider={selection.provider}, strategy={router.strategy})")
+                        logger.info(
+                            "[HYBRID RAG] request_id=%s user_id=%s using MODEL: %s (provider=%s, strategy=%s)",
+                            request_id, user_id, selection.model_name, selection.provider, router.strategy,
+                        )
                     else:
                         logger.warning(f"[HYBRID RAG] request_id={request_id} user_id={user_id} NO MODEL SELECTED, falling back to system default")
                 else:
@@ -1143,7 +1147,10 @@ async def answer_query_hybrid(
         reply = str(web_result.get("answer") or "Không tìm thấy kết quả phù hợp trên Internet.")
         if external_sources:
             reply = reply + _format_external_sources(external_sources)
-        logger.info(f"[HYBRID RAG] request_id={request_id} web search completed, found {len(external_sources)} sources, cached={web_result.get('cached')}")
+        logger.info(
+            "[HYBRID RAG] request_id=%s web search completed, found %d sources, cached=%s",
+            request_id, len(external_sources), web_result.get("cached"),
+        )
         return {
             "reply": reply,
             "sources": [],
@@ -1180,7 +1187,7 @@ async def answer_query_hybrid(
 async def answer_query_stream_events_hybrid(
     question: str,
     mode: str,
-    history: Optional[List[Dict[str, str]]] = None,
+    history: list[dict[str, str]] | None = None,
     conversation_id: str | None = None,
     user_id: int | None = None,
     allow_web_search: bool = False,
@@ -1198,7 +1205,7 @@ async def answer_query_stream_events_hybrid(
     request_id = new_request_id()
     history_text = _prepare_history(history)
     if not history and conversation_id:
-        mem = recall_conversation_context(conversation_id, limit=5)
+        mem = recall_conversation_context(conversation_id, user_id=user_id or 0, limit=5)
         if mem:
             history_text = mem
     usage_records: list[dict[str, Any]] = []
@@ -1377,7 +1384,10 @@ async def answer_query_stream_events_hybrid(
         if external_sources:
             reply = reply + _format_external_sources(external_sources)
         
-        logger.info(f"[HYBRID STREAM] request_id={request_id} web search completed, found {len(external_sources)} sources, cached={web_result.get('cached')}")
+        logger.info(
+            "[HYBRID STREAM] request_id=%s web search completed, found %d sources, cached=%s",
+            request_id, len(external_sources), web_result.get("cached"),
+        )
         
         yield _stream_token(reply)
         yield _stream_metadata(
@@ -1417,7 +1427,7 @@ async def answer_query_stream_events_hybrid(
 def answer_query_stream_events(
     question: str,
     mode: str,
-    history: Optional[List[Dict[str, str]]] = None,
+    history: list[dict[str, str]] | None = None,
     conversation_id: str | None = None,
     user_id: int | None = None,
 ):
@@ -1425,7 +1435,7 @@ def answer_query_stream_events(
     request_id = new_request_id()
     history_text = _prepare_history(history)
     if not history and conversation_id:
-        mem = recall_conversation_context(conversation_id, limit=5)
+        mem = recall_conversation_context(conversation_id, user_id=user_id or 0, limit=5)
         if mem:
             history_text = mem
 

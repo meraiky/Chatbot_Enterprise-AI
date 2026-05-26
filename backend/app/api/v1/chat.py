@@ -1,24 +1,24 @@
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
 import hashlib
 import json
 import logging
 import time
+from typing import Literal
 from uuid import uuid4
-from typing import Literal, List, Optional
 
 import redis
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.core.auth import TokenData, get_current_user
+from app.core.config import settings
+from app.services.memory_service import get_conversation_history, list_user_conversations
 from app.services.rag.query_engine import (
     answer_query,
-    answer_query_stream_events,
     answer_query_hybrid,
+    answer_query_stream_events,
     answer_query_stream_events_hybrid,
 )
-from app.core.config import settings
-from app.core.auth import get_current_user, TokenData
-from app.services.memory_service import list_user_conversations, get_conversation_history
-from fastapi import Depends
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -95,10 +95,16 @@ class ChatRequest(BaseModel):
 
     question: str = Field(..., min_length=1, max_length=4000, description="The user's question or prompt")
     mode: Literal["Internal", "External"] = Field("Internal", description="Search mode: Internal for employees, External for public")
-    history: Optional[List[HistoryMessage]] = Field(default_factory=list, max_length=50, description="Previous conversation turns for context (max 50 messages)")
-    conversation_id: Optional[str] = Field(None, description="Stable client conversation/session id")
+    history: list[HistoryMessage] | None = Field(
+        default_factory=list, max_length=50,
+        description="Previous conversation turns for context (max 50 messages)",
+    )
+    conversation_id: str | None = Field(None, description="Stable client conversation/session id")
 
-    allow_web_search: bool = Field(False, description="Allow fallback to external web search when internal documents do not contain enough information")
+    allow_web_search: bool = Field(
+        False,
+        description="Allow fallback to external web search when internal documents do not contain enough information",
+    )
 
 
 def _get_rate_limit_client() -> redis.Redis | None:
@@ -165,7 +171,7 @@ def _rate_limit_check(mode: str, question: str) -> None:
 
 class UsageRecord(BaseModel):
     request_id: str
-    conversation_id: Optional[str] = None
+    conversation_id: str | None = None
     operation: str
     mode: str
     model: str
@@ -176,14 +182,14 @@ class UsageRecord(BaseModel):
 
 class ChatUsage(BaseModel):
     request_id: str
-    conversation_id: Optional[str] = None
-    records: List[UsageRecord]
+    conversation_id: str | None = None
+    records: list[UsageRecord]
     total_tokens: int
 
 class SourceInfo(BaseModel):
     rank: int
     source: str
-    page: Optional[int]
+    page: int | None
     type: str
     doc_id: str
     distance: float
@@ -197,10 +203,10 @@ class ExternalSourceInfo(BaseModel):
 
 class SourceImageInfo(BaseModel):
     image_id: str
-    doc_id: Optional[str] = None
-    source: Optional[str] = None
-    page: Optional[int] = None
-    caption: Optional[str] = None
+    doc_id: str | None = None
+    source: str | None = None
+    page: int | None = None
+    caption: str | None = None
     url: str
 
 
@@ -233,15 +239,15 @@ class ChatResponse(BaseModel):
     )
 
     reply: str = Field(..., description="The AI generated answer")
-    sources: List[SourceInfo] = Field(default_factory=list, description="List of internal documents used to generate the answer")
-    source_images: List[SourceImageInfo] = Field(default_factory=list, description="Relevant images extracted from source PDFs")
-    external_sources: List[ExternalSourceInfo] = Field(default_factory=list, description="External web sources used to generate the answer")
+    sources: list[SourceInfo] = Field(default_factory=list, description="List of internal documents used to generate the answer")
+    source_images: list[SourceImageInfo] = Field(default_factory=list, description="Relevant images extracted from source PDFs")
+    external_sources: list[ExternalSourceInfo] = Field(default_factory=list, description="External web sources used to generate the answer")
     source_type: str = Field("internal", description="internal | external_web | hybrid | none")
     web_search_offered: bool = Field(False, description="Whether the assistant is asking user permission to search the web")
     web_search_performed: bool = Field(False, description="Whether external web search was executed")
-    suggestion: Optional[str] = Field(None, description="Optional follow-up suggestion shown when web search is offered")
+    suggestion: str | None = Field(None, description="Optional follow-up suggestion shown when web search is offered")
     cache_hit: bool = Field(..., description="Whether the answer was retrieved from semantic cache")
-    blocked: Optional[bool] = Field(None, description="Whether the request was blocked by the Topic Guard")
+    blocked: bool | None = Field(None, description="Whether the request was blocked by the Topic Guard")
     usage: ChatUsage = Field(..., description="Token usage details for the request")
 
 @router.post("/message", response_model=ChatResponse)
@@ -267,10 +273,10 @@ def send_message(
         return result
     except ValueError as e:
         # N-1: Prompt injection / budget exceeded → client error, not server error
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.exception("Failed to answer chat request")
-        raise HTTPException(status_code=500, detail=_public_chat_error(e))
+        raise HTTPException(status_code=500, detail=_public_chat_error(e)) from e
 
 
 @router.post("/message/hybrid", response_model=ChatResponse)
@@ -295,10 +301,10 @@ async def send_message_hybrid(
         return result
     except ValueError as e:
         # N-1: Prompt injection / budget exceeded → client error, not server error
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.exception("Failed to answer hybrid chat request")
-        raise HTTPException(status_code=500, detail=_public_chat_error(e))
+        raise HTTPException(status_code=500, detail=_public_chat_error(e)) from e
 
 
 @router.post("/message/hybrid/stream")

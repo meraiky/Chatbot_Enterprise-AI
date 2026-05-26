@@ -1,13 +1,12 @@
-# Commercial Release Checklist
+# Release Checklist
 
-Run this checklist before sending source code to a buyer.
+Run this checklist before tagging a new release.
 
 ## Repository State
 
 - [ ] `git status --short` is clean.
 - [ ] Latest tests pass.
 - [ ] Latest frontend build passes.
-- [ ] Repo is private.
 - [ ] Remote URL is correct.
 
 ## Secret Safety
@@ -28,14 +27,6 @@ Run this checklist before sending source code to a buyer.
 - [ ] No `.pytest_cache` or `.ruff_cache`.
 - [ ] No logs or local DB files.
 - [ ] No uploaded customer documents.
-
-## Commercial Terms
-
-- [ ] Buyer has accepted [LICENSE](LICENSE).
-- [ ] Payment is complete.
-- [ ] Support scope is clear.
-- [ ] Redistribution restrictions are clear.
-- [ ] Private access is granted only to approved accounts.
 
 ## Build Clean Archive
 

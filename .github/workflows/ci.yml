@@ -45,8 +45,7 @@ jobs:
       working-directory: ./backend
       run: |
         pip install ruff
-        ruff check . --select E,F,I,UP,B,SIM --ignore S101,COM812,ISC001
-      continue-on-error: true
+        ruff check .
 
     - name: Run unit tests
       working-directory: ./backend
@@ -65,7 +64,6 @@ jobs:
         file: ./backend/coverage.xml
         flags: unittests
         fail_ci_if_error: false
-      continue-on-error: true
 
   lint-frontend:
     runs-on: ubuntu-latest

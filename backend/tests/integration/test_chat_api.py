@@ -1,5 +1,7 @@
-import pytest
 from unittest.mock import patch
+
+import pytest
+
 
 @pytest.mark.asyncio
 async def test_chat_message_success(client, mock_llm, mock_vector_store, mock_db):

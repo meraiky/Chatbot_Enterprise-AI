@@ -13,19 +13,20 @@ from __future__ import annotations
 
 import copy
 import logging
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Callable, Dict, List, TypeVar
+from typing import Any, TypeVar
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
 
-def execute_parallel(
-    tasks: List[Callable[[], T]],
+def execute_parallel[T](
+    tasks: list[Callable[[], T]],
     max_workers: int | None = None,
-    context: Dict[str, Any] | None = None,
-) -> List[T]:
+    context: dict[str, Any] | None = None,
+) -> list[T]:
     """
     Execute multiple tasks in parallel using ThreadPoolExecutor.
     
@@ -50,9 +51,9 @@ def execute_parallel(
         max_workers = len(tasks)
     
     # Deep copy context for each task to prevent race conditions
-    contexts = [copy.deepcopy(context) if context else {} for _ in tasks]
+    [copy.deepcopy(context) if context else {} for _ in tasks]
     
-    results: List[T | None] = [None] * len(tasks)
+    results: list[T | None] = [None] * len(tasks)
     
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all tasks with their index
@@ -73,11 +74,11 @@ def execute_parallel(
     return results  # type: ignore[return-value]
 
 
-def execute_parallel_with_context(
-    tasks: List[Callable[[Dict[str, Any]], T]],
-    context: Dict[str, Any],
+def execute_parallel_with_context[T](
+    tasks: list[Callable[[dict[str, Any]], T]],
+    context: dict[str, Any],
     max_workers: int | None = None,
-) -> tuple[List[T], Dict[str, Any]]:
+) -> tuple[list[T], dict[str, Any]]:
     """
     Execute tasks in parallel with isolated context per task, then merge results.
     
@@ -105,12 +106,12 @@ def execute_parallel_with_context(
     # Deep copy context for each task
     contexts = [copy.deepcopy(context) for _ in tasks]
     
-    results: List[T | None] = [None] * len(tasks)
+    results: list[T | None] = [None] * len(tasks)
     
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_index = {
             executor.submit(task, ctx): idx
-            for idx, (task, ctx) in enumerate(zip(tasks, contexts))
+            for idx, (task, ctx) in enumerate(zip(tasks, contexts, strict=False))
         }
         
         for future in as_completed(future_to_index):
@@ -141,7 +142,7 @@ def parallel_retrieval(
     vector_search_fn: Callable[[], Any],
     bm25_search_fn: Callable[[], Any],
     external_search_fn: Callable[[], Any] | None = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Execute multiple retrieval strategies in parallel.
     
@@ -171,15 +172,15 @@ def parallel_retrieval(
     logger.debug("Starting parallel retrieval with %d strategies", len(tasks))
     results = execute_parallel(tasks)
     
-    return dict(zip(keys, results))
+    return dict(zip(keys, results, strict=False))
 
 
-def batch_process(
-    items: List[Any],
+def batch_process[T](
+    items: list[Any],
     process_fn: Callable[[Any], T],
     batch_size: int = 10,
     max_workers: int | None = None,
-) -> List[T]:
+) -> list[T]:
     """
     Process items in parallel batches.
     
@@ -202,7 +203,7 @@ def batch_process(
     if not items:
         return []
     
-    all_results: List[T] = []
+    all_results: list[T] = []
     
     for i in range(0, len(items), batch_size):
         batch = items[i:i + batch_size]

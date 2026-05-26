@@ -16,10 +16,9 @@ def _metadata_json(metadata: dict[str, Any]) -> str:
 
 
 def _ensure_document_chunks_table() -> None:
-    with get_conn() as connection:
-        with connection.cursor() as cur:
-            cur.execute(
-                """
+    with get_conn() as connection, connection.cursor() as cur:
+        cur.execute(
+            """
                 CREATE TABLE IF NOT EXISTS document_chunks (
                     id SERIAL PRIMARY KEY,
                     chunk_id TEXT NOT NULL UNIQUE,
@@ -34,10 +33,10 @@ def _ensure_document_chunks_table() -> None:
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
                 """
-            )
-            cur.execute("CREATE INDEX IF NOT EXISTS document_chunks_doc_id_idx ON document_chunks (doc_id)")
-            cur.execute("CREATE INDEX IF NOT EXISTS document_chunks_mode_idx ON document_chunks (mode)")
-            cur.execute("CREATE INDEX IF NOT EXISTS document_chunks_source_idx ON document_chunks (source)")
+        )
+        cur.execute("CREATE INDEX IF NOT EXISTS document_chunks_doc_id_idx ON document_chunks (doc_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS document_chunks_mode_idx ON document_chunks (mode)")
+        cur.execute("CREATE INDEX IF NOT EXISTS document_chunks_source_idx ON document_chunks (source)")
 
 
 def mirror_document_chunks(
@@ -67,11 +66,10 @@ def mirror_document_chunks(
             )
         )
 
-    with get_conn() as connection:
-        with connection.cursor() as cur:
-            psycopg2.extras.execute_values(
-                cur,
-                """
+    with get_conn() as connection, connection.cursor() as cur:
+        psycopg2.extras.execute_values(
+            cur,
+            """
                 INSERT INTO document_chunks (
                     chunk_id, doc_id, source, mode, page, checksum, uploaded_at,
                     content, metadata
@@ -87,9 +85,9 @@ def mirror_document_chunks(
                     content = EXCLUDED.content,
                     metadata = EXCLUDED.metadata
                 """,
-                rows,
-                template="(%s, %s, %s, %s, %s, %s, %s::timestamptz, %s, %s::json)",
-            )
+            rows,
+            template="(%s, %s, %s, %s, %s, %s, %s::timestamptz, %s, %s::json)",
+        )
     return len(rows)
 
 
@@ -97,10 +95,9 @@ def delete_mirrored_document(doc_id: str) -> int:
     if not settings.DATABASE_URL:
         return 0
     _ensure_document_chunks_table()
-    with get_conn() as connection:
-        with connection.cursor() as cur:
-            cur.execute("DELETE FROM document_chunks WHERE doc_id = %s", (doc_id,))
-            return int(cur.rowcount or 0)
+    with get_conn() as connection, connection.cursor() as cur:
+        cur.execute("DELETE FROM document_chunks WHERE doc_id = %s", (doc_id,))
+        return int(cur.rowcount or 0)
 
 
 def rebuild_vector_from_mirror(doc_id: str | None = None, mode: str | None = None) -> dict[str, int]:
@@ -119,18 +116,17 @@ def rebuild_vector_from_mirror(doc_id: str | None = None, mode: str | None = Non
         params.append(mode)
 
     where_sql = f"WHERE {' AND '.join(where)}" if where else ""
-    with get_conn() as connection:
-        with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                f"""
+    with get_conn() as connection, connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            f"""
                 SELECT chunk_id, doc_id, content, metadata
                 FROM document_chunks
                 {where_sql}
                 ORDER BY doc_id, chunk_id
                 """,
-                params,
-            )
-            rows = cur.fetchall()
+            params,
+        )
+        rows = cur.fetchall()
 
     if not rows:
         return {"chunks": 0, "documents": 0}

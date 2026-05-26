@@ -1,5 +1,5 @@
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
+
 from langchain_core.documents import Document
 
 from app.services.rag.query_engine import (
@@ -13,7 +13,6 @@ from app.services.rag.query_engine import (
     answer_query_stream,
     retrieve_context,
 )
-
 
 # ---------------------------------------------------------------------------
 # Light intent classification

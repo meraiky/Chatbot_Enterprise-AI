@@ -25,31 +25,30 @@ def check_vector_consistency(auto_rebuild: bool = False) -> dict:
             "note": "DATABASE_URL not configured",
         }
 
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) FROM document_chunks")
-            total_chunks = int((cur.fetchone() or (0,))[0])
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM document_chunks")
+        total_chunks = int((cur.fetchone() or (0,))[0])
 
-            cur.execute(
-                "SELECT COUNT(DISTINCT doc_id) FROM document_chunks WHERE doc_id IS NOT NULL"
-            )
-            total_docs = int((cur.fetchone() or (0,))[0])
+        cur.execute(
+            "SELECT COUNT(DISTINCT doc_id) FROM document_chunks WHERE doc_id IS NOT NULL"
+        )
+        total_docs = int((cur.fetchone() or (0,))[0])
 
-            cur.execute("SELECT COUNT(*) FROM document_chunks WHERE embedding IS NULL")
-            missing_embedding = int((cur.fetchone() or (0,))[0])
+        cur.execute("SELECT COUNT(*) FROM document_chunks WHERE embedding IS NULL")
+        missing_embedding = int((cur.fetchone() or (0,))[0])
 
-            cur.execute(
-                """
+        cur.execute(
+            """
                 SELECT COALESCE(doc_type, 'unknown'), COUNT(*), COUNT(DISTINCT doc_id)
                 FROM document_chunks
                 GROUP BY doc_type
                 ORDER BY doc_type
                 """
-            )
-            by_type = [
-                {"doc_type": row[0], "chunks": int(row[1]), "documents": int(row[2])}
-                for row in cur.fetchall()
-            ]
+        )
+        by_type = [
+            {"doc_type": row[0], "chunks": int(row[1]), "documents": int(row[2])}
+            for row in cur.fetchall()
+        ]
 
     issues = []
     if missing_embedding > 0:

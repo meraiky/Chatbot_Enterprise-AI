@@ -6,9 +6,9 @@ from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Any
 
-from app.services.rag.vector_store import get_vector_store
 from app.services.rag.cache_service import cache_service
 from app.services.rag.document_mirror import delete_mirrored_document
+from app.services.rag.vector_store import get_vector_store
 
 
 def build_document_id(source_name: str, doc_type: str, checksum: str) -> str:

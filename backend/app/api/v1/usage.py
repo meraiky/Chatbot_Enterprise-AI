@@ -1,20 +1,20 @@
 import logging
+from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
-from typing import List, Dict, Any
-from app.core.auth import get_current_admin, TokenData
+
+from app.core.auth import TokenData, get_current_admin
 
 logger = logging.getLogger(__name__)
 
+from app.services.chat_audit_service import export_chat_audit, list_conversation_summaries
+from app.services.pricing_service import get_session_cost
 from app.services.usage_tracker import (
     get_usage_summary,
     list_usage_records,
     reset_usage,
 )
-from app.services.chat_audit_service import export_chat_audit, list_conversation_summaries
-from app.services.pricing_service import get_session_cost
-
 
 router = APIRouter()
 
@@ -44,7 +44,7 @@ class UsageSummaryResponse(BaseModel):
     total_tokens: int = Field(..., description="Total tokens consumed across all operations")
     actual_tokens: int = Field(..., description="Tokens reported by providers")
     estimated_tokens: int = Field(..., description="Tokens estimated locally")
-    by_operation: List[Dict[str, Any]] = Field(..., description="Token usage grouped by operation/model")
+    by_operation: list[dict[str, Any]] = Field(..., description="Token usage grouped by operation/model")
     
 
 class UsageRecord(BaseModel):
@@ -60,7 +60,7 @@ class UsageRecord(BaseModel):
     output_tokens: int
     total_tokens: int
     estimated: bool
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class UsageRecordsResponse(BaseModel):
@@ -86,7 +86,7 @@ class UsageRecordsResponse(BaseModel):
         }
     )
 
-    records: List[UsageRecord]
+    records: list[UsageRecord]
 
 
 class ClearUsageResponse(BaseModel):
@@ -115,18 +115,18 @@ class ConversationSummary(BaseModel):
 
 
 class ConversationSummaryResponse(BaseModel):
-    conversations: List[ConversationSummary]
+    conversations: list[ConversationSummary]
 
 
 class AuditExportResponse(BaseModel):
-    records: List[Dict[str, Any]]
+    records: list[dict[str, Any]]
 
 
 class SessionCostResponse(BaseModel):
     conversation_id: str
     total_cost_usd: float
     total_cost_vnd: int
-    breakdown: List[Dict[str, Any]]
+    breakdown: list[dict[str, Any]]
 
 
 @router.get("/summary", response_model=UsageSummaryResponse)
@@ -198,5 +198,5 @@ async def clear_usage(current_user: TokenData = Depends(get_current_admin)):
         deleted_records = reset_usage()
     except Exception:
         logger.exception("Failed to clear usage records")
-        raise HTTPException(status_code=500, detail="Failed to clear usage records.")
+        raise HTTPException(status_code=500, detail="Failed to clear usage records.") from None
     return {"message": "Usage records cleared", "deleted_records": deleted_records}

@@ -1,10 +1,12 @@
-import uuid
 import time
+import uuid
+
+import structlog
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
-import structlog
 
 from app.core.redaction import redact_sensitive
+
 
 class LoggingMiddleware(BaseHTTPMiddleware):
     """

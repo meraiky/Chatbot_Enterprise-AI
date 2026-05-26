@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 import unicodedata
 
-
 INJECTION_PATTERNS = [
     r"ignore\s+(all\s+)?previous\s+instructions?",
     r"ignore\s+(the\s+)?(?:above|prior|earlier)\s+(?:instructions?|rules|prompt)",

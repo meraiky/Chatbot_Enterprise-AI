@@ -32,6 +32,15 @@ coverage.xml
 .coverage
 htmlcov/
 
+# ─── Security scan reports ────────────────────────────────────────────────────
+bandit-report.json
+trivy-results.sarif
+*.sarif
+
+# ─── Linter caches ────────────────────────────────────────────────────────────
+.ruff_cache/
+backend/.ruff_cache/
+
 # ─── Runtime data & caches ────────────────────────────────────────────────────
 backend/chroma_db/
 backend/storage/

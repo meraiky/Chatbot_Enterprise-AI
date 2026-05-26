@@ -12,7 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from typing import Any, Optional, Tuple
+from typing import Any
 
 import redis
 
@@ -29,7 +29,7 @@ class PostgresCacheService:
 
     def __init__(self) -> None:
         self._embeddings = get_embedding_function()
-        self._redis_client: Optional[redis.Redis] = None
+        self._redis_client: redis.Redis | None = None
         self._init_redis()
 
     def _init_redis(self) -> None:
@@ -73,7 +73,7 @@ class PostgresCacheService:
 
     def get_cached_answer(
         self, question: str, mode: str
-    ) -> Optional[Tuple[str, Any]]:
+    ) -> tuple[str, Any] | None:
         """
         Two-tier cache lookup:
         1. Check Redis (L1) for exact match
@@ -106,10 +106,9 @@ class PostgresCacheService:
                 ORDER  BY distance
                 LIMIT  1
             """
-            with get_conn() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(sql, (vec_str, mode))
-                    row = cur.fetchone()
+            with get_conn() as conn, conn.cursor() as cur:
+                cur.execute(sql, (vec_str, mode))
+                row = cur.fetchone()
 
             if row is None:
                 logger.info("Cache MISS (L1+L2) mode=%s", mode)
@@ -172,21 +171,20 @@ class PostgresCacheService:
                 VALUES (%s, %s, %s::jsonb, %s, %s::vector, %s, %s, %s)
                 ON CONFLICT DO NOTHING
             """
-            with get_conn() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        sql,
-                        (
-                            question,
-                            answer,
-                            sources_json,
-                            mode,
-                            vec_str,
-                            question_tokens,
-                            answer_tokens,
-                            total_tokens,
-                        ),
-                    )
+            with get_conn() as conn, conn.cursor() as cur:
+                cur.execute(
+                    sql,
+                    (
+                        question,
+                        answer,
+                        sources_json,
+                        mode,
+                        vec_str,
+                        question_tokens,
+                        answer_tokens,
+                        total_tokens,
+                    ),
+                )
 
             logger.debug("Cached answer (L1+L2) mode=%s", mode)
         except Exception:
@@ -216,20 +214,19 @@ class PostgresCacheService:
     def get_stats(self) -> dict:
         """Return cache statistics for the admin dashboard."""
         try:
-            with get_conn() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("SELECT COUNT(*), COALESCE(SUM(hit_count), 0) FROM qa_cache")
-                    total, total_hits = cur.fetchone()
+            with get_conn() as conn, conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*), COALESCE(SUM(hit_count), 0) FROM qa_cache")
+                total, total_hits = cur.fetchone()
 
-                    cur.execute(
-                        """
+                cur.execute(
+                    """
                         SELECT question, mode, hit_count, created_at
                         FROM   qa_cache
                         ORDER  BY hit_count DESC
                         LIMIT  10
                         """
-                    )
-                    top_rows = cur.fetchall()
+                )
+                top_rows = cur.fetchall()
 
             top = [
                 {
@@ -271,11 +268,10 @@ class PostgresCacheService:
 
         # Clear PostgreSQL L2
         try:
-            with get_conn() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("SELECT COUNT(*) FROM qa_cache")
-                    count = cur.fetchone()[0]
-                    cur.execute("DELETE FROM qa_cache")
+            with get_conn() as conn, conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM qa_cache")
+                count = cur.fetchone()[0]
+                cur.execute("DELETE FROM qa_cache")
             logger.info("Cleared %d PostgreSQL L2 cache entries", count)
             return count
         except Exception:
@@ -301,10 +297,9 @@ class PostgresCacheService:
 
         # Clear PostgreSQL L2 for specific mode
         try:
-            with get_conn() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("DELETE FROM qa_cache WHERE mode = %s", (mode,))
-                    count = cur.rowcount
+            with get_conn() as conn, conn.cursor() as cur:
+                cur.execute("DELETE FROM qa_cache WHERE mode = %s", (mode,))
+                count = cur.rowcount
             logger.info("Cleared %d PostgreSQL L2 cache entries for mode: %s", count, mode)
             return count
         except Exception:
@@ -317,12 +312,11 @@ class PostgresCacheService:
 
     def _increment_hit(self, row_id: int) -> None:
         try:
-            with get_conn() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "UPDATE qa_cache SET hit_count = hit_count + 1, last_hit_at = NOW() WHERE id = %s",
-                        (row_id,),
-                    )
+            with get_conn() as conn, conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE qa_cache SET hit_count = hit_count + 1, last_hit_at = NOW() WHERE id = %s",
+                    (row_id,),
+                )
         except Exception:
             logger.warning("Failed to increment hit_count for qa_cache id=%s", row_id)
 

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 
-
 PII_PATTERNS = {
     # Vietnamese identifiers
     "phone_vn": r"(?<!\d)(?:\+84|0)[3-9]\d{8}(?!\d)",

@@ -1,7 +1,7 @@
 # Enterprise AI Chatbot
 
 [![CI](https://github.com/meraiky/Chatbot_Enterprise-AI/actions/workflows/ci.yml/badge.svg)](https://github.com/meraiky/Chatbot_Enterprise-AI/actions/workflows/ci.yml)
-[![License: Commercial](https://img.shields.io/badge/License-Commercial-red.svg)](LICENSE)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
 [![Node 20](https://img.shields.io/badge/node-20-green.svg)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/docker-compose-blue.svg?logo=docker)](docker-compose.yml)
@@ -11,15 +11,13 @@ A self-hosted enterprise AI chatbot for internal knowledge bases. It includes do
 
 **New to this project? Start with [`QUICKSTART.md`](QUICKSTART.md) for a 5-minute setup guide.**
 
-> This is the commercial source edition. It is source-available to approved buyers only and is not open source. See [LICENSE](LICENSE) and [COMMERCIAL_LICENSE.md](COMMERCIAL_LICENSE.md).
-
 ---
 
 ## What You Get
 
 - **Chat over your documents** with PDF upload, indexing, citations, and streaming answers.
-- **Admin dashboard** for users, documents, API keys, model settings, topic guards, and usage.
-- **Bring your own LLM key** for Google Gemini, Anthropic Claude, or OpenAI.
+- **Admin dashboard** for users, documents, model settings, topic guards, and usage.
+- **Bring your own LLM key** — each user configures their own key for Google Gemini, Anthropic Claude, or OpenAI via User Settings.
 - **Self-hosted data layer** using PostgreSQL + pgvector instead of a separate vector database.
 - **Docker-first setup** so a new user can clone the repo, fill `.env`, and run the stack.
 
@@ -34,7 +32,7 @@ The stack is intentionally compact: one backend, one frontend, one PostgreSQL da
 | New users need an easy setup | Docker Compose runs backend, frontend, PostgreSQL, and Redis |
 | Internal documents need search quality | pgvector semantic search + BM25 keyword search |
 | LLM calls can get expensive | Redis exact cache + pgvector semantic cache |
-| Teams use different LLM vendors | Admin-managed Gemini, Claude, and OpenAI keys |
+| Teams use different LLM vendors | Per-user Gemini, Claude, and OpenAI keys managed via User Settings |
 | Internal apps need guardrails | Topic guard and injection scanning run before LLM calls |
 
 ---
@@ -44,8 +42,8 @@ The stack is intentionally compact: one backend, one frontend, one PostgreSQL da
 - Document upload and indexing
 - Hybrid retrieval with citations
 - Streaming chat responses
-- Admin-managed LLM API keys
-- Per-user model configuration
+- Per-user LLM API key management (Gemini, Claude, OpenAI)
+- Per-user model and routing configuration
 - Topic guard and prompt-injection checks
 - Usage tracking without storing raw prompts in analytics
 - Optional web search fallback
@@ -58,7 +56,6 @@ The stack is intentionally compact: one backend, one frontend, one PostgreSQL da
 graph TD
     subgraph Clients
         A[React + Vite SPA]
-        B[Streamlit\nrapid-prototype client]
     end
 
     subgraph Backend [FastAPI :8000]
@@ -73,7 +70,7 @@ graph TD
         J[(Redis\nexact-match cache)]
     end
 
-    A & B -->|REST / SSE| C --> D
+    A -->|REST / SSE| C --> D
     D -->|in-scope| E
     E -->|L1 miss| J
     E -->|L2 miss + retrieve| H
@@ -158,11 +155,11 @@ docker compose up --build -d
 
 # 4. Seed demo users and topic-guard patterns
 make seed
-# If you do not have make: docker compose exec backend python -m scripts.seed_demo
-# ⚠️ IMPORTANT: Copy the generated passwords from terminal output!
+# Without make: docker compose exec backend python -m scripts.seed_demo
+# ⚠️ Copy the generated passwords from terminal output!
 
-# 5. Add an LLM API key via the Admin UI
-#    Log in at http://localhost:3000 with credentials from step 4 → Admin → API Keys
+# 5. Add an LLM API key via User Settings
+#    Log in at http://localhost:3000 with credentials from step 4 → User Settings → Models → Add Model
 ```
 
 | Service | URL |
@@ -194,9 +191,6 @@ uvicorn main:app --reload --port 8000
 
 # Frontend (new terminal)
 cd frontend && npm install && npm run dev
-
-# Streamlit client (optional)
-cd frontend && pip install -r requirements.txt && streamlit run app.py
 ```
 
 See [`docs/setup/RUN_LOCAL.md`](docs/setup/RUN_LOCAL.md) for a full manual setup guide including PostgreSQL + pgvector installation and the [demo onboarding guide](docs/setup/onboarding-demo.md).
@@ -215,10 +209,13 @@ Full interactive docs at `http://localhost:8000/docs`.
 | `POST /api/v1/auth/login` | Get JWT token |
 | `POST /api/v1/chat/message` | Chat (sync) |
 | `POST /api/v1/chat/message/stream` | Chat (SSE streaming) |
-| `POST /api/v1/document/upload` | Upload + index a PDF |
+| `POST /api/v1/document/upload` | Upload PDF → 202 + `poll_url` for status |
+| `GET /api/v1/document/ingestion/{doc_id}` | Poll indexing status |
 | `GET /api/v1/document` | List indexed documents |
 | `GET /api/v1/usage/summary` | Token usage summary |
-| `GET /api/v1/admin/keys` | Admin: API key pool |
+| `GET /api/v1/admin/topic-guards` | Admin: list topic guard rules |
+| `GET /api/v1/admin/qa-cache/stats` | Admin: semantic cache stats |
+| `GET /api/v1/admin/health/retrieval` | Admin: retrieval health check |
 
 ---
 
@@ -245,7 +242,6 @@ Chatbot_Enterprise-AI/
 │   └── Dockerfile
 ├── frontend/
 │   ├── src/               React SPA (pages · stores · api client)
-│   ├── app.py             Streamlit client
 │   ├── Dockerfile         multi-stage nginx build
 │   └── nginx.conf         SPA routing + /api/ proxy
 ├── docs/
@@ -276,27 +272,28 @@ Redis gives sub-millisecond exact-match hits. pgvector semantic cache catches ne
 Usage analytics are intentionally content-light: token counts, model/operation metadata, request IDs, and source references. Raw user questions, answer previews, and web-search queries are not written to usage metadata or search cache records. Migration `017` redacts those fields from existing records.
 
 **Why a pluggable model router?**
-Different query types have different cost/quality tradeoffs. Simple factual lookups can go to a cheaper model; complex reasoning goes to a stronger one. The admin key pool lets ops teams swap providers without a code deploy.
-
-**Why keep Streamlit?**
-It serves as a low-friction client for internal users who don't need the full React UI, and as a development/testing surface. It is not the primary client and is not included in the Docker stack by default.
+Different query types have different cost/quality tradeoffs. Simple factual lookups can go to a cheaper model; complex reasoning goes to a stronger one. Each user configures their preferred model and provider through User Settings, and the router selects based on per-user configuration.
 
 ---
 
 ## Roadmap
 
-See [`docs/`](docs/) for current architecture and known gaps.
+Contributions are welcome. Known gaps and planned improvements:
 
-Planned improvements:
-- Multi-tenancy: per-org document namespaces
-- Evaluation harness: RAGAS metrics for retrieval quality
-- Auth: OAuth2 / SSO support
+| Item | Status | Notes |
+|---|---|---|
+| Background indexing (FastAPI BackgroundTasks) | ✅ Done | Upload returns 202, indexing runs async |
+| Multi-tenancy / per-org namespaces | Planned | All users currently share one document pool |
+| OAuth2 / SSO | Planned | Only username+password auth today |
+| RAGAS evaluation harness | Planned | No automated retrieval quality metrics yet |
+| E2E frontend tests | Planned | Only backend unit/integration tests exist |
+| BM25 corpus caching in Redis | Planned | BM25 rebuilds from DB on every search |
 
 ---
 
 ## Contributing
 
-This is a private commercial source repository. Internal contributors should see [CONTRIBUTING.md](CONTRIBUTING.md) for branch strategy, code style, commit convention, and release checks.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for branch strategy, code style, commit convention, and PR checklist.
 
 ## Security
 
@@ -304,9 +301,11 @@ See [SECURITY.md](SECURITY.md) for vulnerability reporting and security design n
 
 ## License
 
-Commercial source license. See [LICENSE](LICENSE).
+[GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE).
 
-For source access, private deployment packages, or licensing questions, see [BUY_SOURCE.md](BUY_SOURCE.md) and [CONTACT.md](CONTACT.md).
+Free to use, modify, and self-host. If you build a network service (SaaS) on top of this code, your modified source must also be open-sourced under AGPL-3.0.
+
+Questions or contributions: open an issue or see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 

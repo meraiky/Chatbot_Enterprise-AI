@@ -4,7 +4,6 @@ import re
 
 from app.services.pii_redactor import redact as redact_pii
 
-
 SECRET_PATTERNS = {
     "jwt": r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+",
     "openai_key": r"\bsk-[A-Za-z0-9_-]{20,}\b",

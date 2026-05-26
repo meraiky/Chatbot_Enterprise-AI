@@ -1,5 +1,6 @@
 from app.services import topic_guard_service
 
+
 def test_check_topic_guard_blocked(mock_db):
     """Test that a restricted topic is correctly blocked."""
     # Setup mock DB to return a blocking rule

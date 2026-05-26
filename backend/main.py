@@ -1,14 +1,15 @@
-from contextlib import asynccontextmanager
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.v1 import chat, document, usage, admin, auth, users
+
+from app.api.v1 import admin, auth, chat, document, usage, users
 from app.core.config import get_cors_origins, settings
 from app.core.database import init_db, seed_initial_admin
 from app.middleware.error_handler import setup_exception_handlers
-from app.middleware.security import setup_security_middleware
 from app.middleware.logging import LoggingMiddleware
+from app.middleware.security import setup_security_middleware
 
 logger = logging.getLogger(__name__)
 
@@ -128,13 +129,12 @@ def ready():
     """M-9 fix: Check DB connectivity before reporting ready."""
     try:
         from app.core.database import get_conn
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT 1")
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1")
         return {"status": "ready"}
     except Exception as e:
         logger.error(f"Readiness probe failed: {e}")
-        raise HTTPException(status_code=503, detail="Database not ready")
+        raise HTTPException(status_code=503, detail="Database not ready") from e
 
 app.include_router(chat.router, prefix="/api/v1/chat", tags=["Chat"])
 app.include_router(document.router, prefix="/api/v1/document", tags=["Document"])

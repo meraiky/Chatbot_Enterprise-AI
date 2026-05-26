@@ -15,10 +15,9 @@ def _enabled() -> bool:
 def ensure_ingestion_jobs_table() -> None:
     if not _enabled():
         return
-    with get_conn() as connection:
-        with connection.cursor() as cur:
-            cur.execute(
-                """
+    with get_conn() as connection, connection.cursor() as cur:
+        cur.execute(
+            """
                 CREATE TABLE IF NOT EXISTS document_ingestion_jobs (
                     id SERIAL PRIMARY KEY,
                     doc_id TEXT NOT NULL UNIQUE,
@@ -37,15 +36,15 @@ def ensure_ingestion_jobs_table() -> None:
                     completed_at TIMESTAMPTZ
                 )
                 """
-            )
-            cur.execute(
-                "CREATE INDEX IF NOT EXISTS document_ingestion_jobs_status_idx "
-                "ON document_ingestion_jobs (status)"
-            )
-            cur.execute(
-                "CREATE INDEX IF NOT EXISTS document_ingestion_jobs_mode_idx "
-                "ON document_ingestion_jobs (mode)"
-            )
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS document_ingestion_jobs_status_idx "
+            "ON document_ingestion_jobs (status)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS document_ingestion_jobs_mode_idx "
+            "ON document_ingestion_jobs (mode)"
+        )
 
 
 def upsert_ingestion_job(
@@ -62,10 +61,9 @@ def upsert_ingestion_job(
     if not _enabled():
         return
     ensure_ingestion_jobs_table()
-    with get_conn() as connection:
-        with connection.cursor() as cur:
-            cur.execute(
-                """
+    with get_conn() as connection, connection.cursor() as cur:
+        cur.execute(
+            """
                 INSERT INTO document_ingestion_jobs (
                     doc_id, source, mode, checksum, storage_path, status,
                     progress, progress_message
@@ -83,17 +81,17 @@ def upsert_ingestion_job(
                     updated_at = NOW(),
                     completed_at = NULL
                 """,
-                (
-                    doc_id,
-                    source,
-                    mode,
-                    checksum,
-                    storage_path,
-                    status,
-                    progress,
-                    progress_message,
-                ),
-            )
+            (
+                doc_id,
+                source,
+                mode,
+                checksum,
+                storage_path,
+                status,
+                progress,
+                progress_message,
+            ),
+        )
 
 
 def update_ingestion_job(
@@ -110,10 +108,9 @@ def update_ingestion_job(
         return
     ensure_ingestion_jobs_table()
     completed_sql = ", completed_at = NOW()" if status in {"indexed", "failed"} else ""
-    with get_conn() as connection:
-        with connection.cursor() as cur:
-            cur.execute(
-                f"""
+    with get_conn() as connection, connection.cursor() as cur:
+        cur.execute(
+            f"""
                 UPDATE document_ingestion_jobs
                 SET status = %s,
                     progress = %s,
@@ -125,35 +122,34 @@ def update_ingestion_job(
                     {completed_sql}
                 WHERE doc_id = %s
                 """,
-                (
-                    status,
-                    progress,
-                    progress_message,
-                    chunks_indexed,
-                    replaced_chunks,
-                    error_message,
-                    doc_id,
-                ),
-            )
+            (
+                status,
+                progress,
+                progress_message,
+                chunks_indexed,
+                replaced_chunks,
+                error_message,
+                doc_id,
+            ),
+        )
 
 
 def get_ingestion_job(doc_id: str) -> dict[str, Any] | None:
     if not _enabled():
         return None
     ensure_ingestion_jobs_table()
-    with get_conn() as connection:
-        with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                """
+    with get_conn() as connection, connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """
                 SELECT doc_id, source, mode, checksum, storage_path, status,
                        progress, progress_message, chunks_indexed, replaced_chunks,
                        error_message, created_at, updated_at, completed_at
                 FROM document_ingestion_jobs
                 WHERE doc_id = %s
                 """,
-                (doc_id,),
-            )
-            row = cur.fetchone()
+            (doc_id,),
+        )
+        row = cur.fetchone()
     return dict(row) if row else None
 
 
@@ -161,7 +157,6 @@ def delete_ingestion_job(doc_id: str) -> int:
     if not _enabled():
         return 0
     ensure_ingestion_jobs_table()
-    with get_conn() as connection:
-        with connection.cursor() as cur:
-            cur.execute("DELETE FROM document_ingestion_jobs WHERE doc_id = %s", (doc_id,))
-            return int(cur.rowcount or 0)
+    with get_conn() as connection, connection.cursor() as cur:
+        cur.execute("DELETE FROM document_ingestion_jobs WHERE doc_id = %s", (doc_id,))
+        return int(cur.rowcount or 0)

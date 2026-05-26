@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import logging
 import warnings
-from typing import Dict, List, Optional
 
 from langchain_core.messages import HumanMessage
+
 warnings.filterwarnings(
     "ignore",
     category=FutureWarning,
     module=r"langchain_google_genai\.chat_models",
 )
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_anthropic import ChatAnthropic
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.core.config import settings
 
@@ -60,7 +60,7 @@ def _build_llm_from_selection(selection, streaming: bool = False):
         try:
             from langchain_openai import ChatOpenAI
         except ImportError:
-            raise ValueError("langchain-openai is not installed. Install it to use OpenAI-compatible models.")
+            raise ValueError("langchain-openai is not installed. Install it to use OpenAI-compatible models.") from None
         
         key = api_key or settings.OPENAI_API_KEY or "dummy"
         endpoint = selection.custom_endpoint
@@ -104,7 +104,7 @@ def _get_default_llm(streaming: bool = False):
 # ---------------------------------------------------------------------------
 
 
-def get_llm(streaming: bool = False, user_id: Optional[int] = None):
+def get_llm(streaming: bool = False, user_id: int | None = None):
     """
     Build a LangChain LLM instance.
 
@@ -163,7 +163,7 @@ def get_llm(streaming: bool = False, user_id: Optional[int] = None):
     return _get_default_llm(streaming=streaming)
 
 
-def summarize_history(history: List[Dict[str, str]], user_id: Optional[int] = None) -> str:
+def summarize_history(history: list[dict[str, str]], user_id: int | None = None) -> str:
     """
     Summarizes a long conversation history into a concise paragraph
     to save tokens while preserving context.

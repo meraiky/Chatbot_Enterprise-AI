@@ -8,6 +8,7 @@ Get the Enterprise AI Chatbot running in **5 minutes**.
 
 - **Docker** + **Docker Compose** (recommended)
 - OR: **Python 3.12**, **Node.js 20**, **PostgreSQL 16**, **Redis 7**
+- **LLM API key** — Gemini, OpenAI, or Anthropic. The app runs without one but **you cannot chat until a key is added** via Admin → API Keys after first login. Get one free at [Google AI Studio](https://aistudio.google.com/apikey) (Gemini).
 
 ---
 
@@ -16,7 +17,7 @@ Get the Enterprise AI Chatbot running in **5 minutes**.
 ### 1. Clone and Setup
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/meraiky/Chatbot_Enterprise-AI
 cd Chatbot_Enterprise-AI
 cp .env.example .env
 ```
@@ -78,7 +79,7 @@ Login with the credentials from step 4.
 
 ```bash
 # Clone and setup
-git clone <repository-url>
+git clone https://github.com/meraiky/Chatbot_Enterprise-AI
 cd Chatbot_Enterprise-AI
 cp backend/.env.example backend/.env
 

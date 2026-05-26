@@ -5,10 +5,9 @@ Uses AES-256-GCM for authenticated encryption with a server-side master key.
 """
 import base64
 import os
-from typing import Optional
 
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from app.core.config import settings
 
@@ -30,7 +29,7 @@ def _get_encryption_key() -> bytes:
     try:
         key = base64.b64decode(key_b64)
     except Exception as e:
-        raise RuntimeError(f"ENCRYPTION_KEY is not valid base64: {e}")
+        raise RuntimeError(f"ENCRYPTION_KEY is not valid base64: {e}") from e
     
     if len(key) != 32:
         raise RuntimeError(f"ENCRYPTION_KEY must be 32 bytes (256 bits), got {len(key)} bytes")
@@ -68,7 +67,7 @@ def encrypt_credential(plaintext: str) -> str:
     return base64.b64encode(encrypted).decode('ascii')
 
 
-def decrypt_credential(encrypted_b64: str) -> Optional[str]:
+def decrypt_credential(encrypted_b64: str) -> str | None:
     """
     Decrypt a credential (API key) using AES-256-GCM.
     

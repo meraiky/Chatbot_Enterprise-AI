@@ -1,9 +1,8 @@
-from pathlib import Path
 import os
+from pathlib import Path
 
 from dotenv import dotenv_values
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 PROJECT_ROOT = BACKEND_DIR.parent

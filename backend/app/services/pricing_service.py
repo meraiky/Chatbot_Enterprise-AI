@@ -8,7 +8,6 @@ import psycopg2.extras
 from app.core.config import settings
 from app.core.database import get_conn
 
-
 DEFAULT_PRICING = [
     ("gemini-3-flash-preview", Decimal("0.50"), Decimal("3.00"), "USD"),
     ("models/gemini-embedding-2", Decimal("0.15"), Decimal("0.00"), "USD"),
@@ -21,10 +20,9 @@ DEFAULT_PRICING = [
 def ensure_pricing_table() -> None:
     if not settings.DATABASE_URL:
         return
-    with get_conn() as connection:
-        with connection.cursor() as cur:
-            cur.execute(
-                """
+    with get_conn() as connection, connection.cursor() as cur:
+        cur.execute(
+            """
                 CREATE TABLE IF NOT EXISTS model_pricing (
                     model_name TEXT PRIMARY KEY,
                     input_price_per_1m_tokens NUMERIC(12, 6) NOT NULL DEFAULT 0,
@@ -34,10 +32,10 @@ def ensure_pricing_table() -> None:
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
                 """
-            )
-            for model, input_price, output_price, currency in DEFAULT_PRICING:
-                cur.execute(
-                    """
+        )
+        for model, input_price, output_price, currency in DEFAULT_PRICING:
+            cur.execute(
+                """
                     INSERT INTO model_pricing (
                         model_name, input_price_per_1m_tokens,
                         output_price_per_1m_tokens, currency
@@ -45,18 +43,17 @@ def ensure_pricing_table() -> None:
                     VALUES (%s, %s, %s, %s)
                     ON CONFLICT (model_name) DO NOTHING
                     """,
-                    (model, input_price, output_price, currency),
-                )
+                (model, input_price, output_price, currency),
+            )
 
 
 def get_session_cost(conversation_id: str, usd_to_vnd: float = 25400) -> dict[str, Any]:
     if not settings.DATABASE_URL:
         return {"conversation_id": conversation_id, "total_cost_usd": 0, "total_cost_vnd": 0, "breakdown": []}
     ensure_pricing_table()
-    with get_conn() as connection:
-        with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                """
+    with get_conn() as connection, connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """
                 SELECT
                     tu.model,
                     COALESCE(SUM(tu.input_tokens), 0) AS input_tokens,
@@ -71,9 +68,9 @@ def get_session_cost(conversation_id: str, usd_to_vnd: float = 25400) -> dict[st
                 GROUP BY tu.model
                 ORDER BY cost_usd DESC
                 """,
-                (conversation_id,),
-            )
-            rows = cur.fetchall()
+            (conversation_id,),
+        )
+        rows = cur.fetchall()
 
     breakdown = [
         {
@@ -106,10 +103,9 @@ def is_over_budget(conversation_id: str | None = None) -> bool:
         # Simplified: check all usage if no ID provided
         if not settings.DATABASE_URL:
             return False
-        with get_conn() as connection:
-            with connection.cursor() as cur:
-                cur.execute(
-                    """
+        with get_conn() as connection, connection.cursor() as cur:
+            cur.execute(
+                """
                     SELECT COALESCE(SUM(
                         tu.input_tokens * COALESCE(mp.input_price_per_1m_tokens, 0) / 1000000.0
                         + tu.output_tokens * COALESCE(mp.output_price_per_1m_tokens, 0) / 1000000.0
@@ -117,8 +113,8 @@ def is_over_budget(conversation_id: str | None = None) -> bool:
                     FROM token_usage tu
                     LEFT JOIN model_pricing mp ON mp.model_name = tu.model
                     """
-                )
-                current_total = float(cur.fetchone()[0] or 0)
+            )
+            current_total = float(cur.fetchone()[0] or 0)
     
     return current_total >= settings.LOCAL_COST_BUDGET
 

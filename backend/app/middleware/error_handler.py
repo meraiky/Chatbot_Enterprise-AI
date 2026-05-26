@@ -1,8 +1,10 @@
+import logging
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+
 from app.core.exceptions import ChatbotException
 from app.core.redaction import redact_sensitive
-import logging
 
 logger = logging.getLogger(__name__)
 

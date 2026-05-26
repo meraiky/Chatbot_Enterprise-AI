@@ -1,7 +1,6 @@
-# Internal Contributing Guide
+# Contributing Guide
 
-This is a private commercial source repository. This guide is for internal
-contributors, maintainers, contractors, or approved customers with source access.
+This is an open source project licensed under AGPL v3. Contributions are welcome.
 
 ## Branch Strategy
 
@@ -18,8 +17,8 @@ Always branch from `main`. Keep branches short-lived and focused on one concern.
 ## Development Setup
 
 ```bash
-# Clone and enter the private repo
-git clone <private-repo-url>
+# Clone the repo
+git clone https://github.com/meraiky/Chatbot_Enterprise-AI
 cd Chatbot_Enterprise-AI
 
 # Copy environment config
@@ -64,8 +63,6 @@ Before opening a PR, verify:
 - [ ] `.env.example` updated if new env vars were added
 - [ ] `CHANGELOG.md` updated under `[Unreleased]`
 - [ ] No `.env`, secrets, or large binaries committed
-- [ ] No customer documents, customer data, private deployment files, or license-specific files committed
-- [ ] Commercial license notices remain intact
 - [ ] No raw prompts, user questions, answers, API keys, tokens, or credentials are logged or added to usage metadata
 - [ ] Docstrings added for non-obvious functions
 

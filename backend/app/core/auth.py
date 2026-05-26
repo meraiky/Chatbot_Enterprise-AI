@@ -1,5 +1,5 @@
-from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import uuid4
 
 import bcrypt
@@ -26,12 +26,12 @@ class Token(BaseModel):
     token_type: str
 
 class TokenData(BaseModel):
-    username: Optional[str] = None
-    role: Optional[str] = None
-    user_id: Optional[int] = None
-    jti: Optional[str] = None
-    can_manage_models: Optional[bool] = None
-    token_type: Optional[str] = None
+    username: str | None = None
+    role: str | None = None
+    user_id: int | None = None
+    jti: str | None = None
+    can_manage_models: bool | None = None
+    token_type: str | None = None
 
 # ---------------------------------------------------------------------------
 # Logic
@@ -72,13 +72,13 @@ def _get_jwt_secret() -> str:
 
 def _create_token(data: dict, token_type: str, expires_delta: timedelta):
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + expires_delta
+    expire = datetime.now(UTC) + expires_delta
     to_encode.update({"exp": expire, "jti": str(uuid4()), "typ": token_type})
     encoded_jwt = jwt.encode(to_encode, _get_jwt_secret(), algorithm=ALGORITHM)
     return encoded_jwt
 
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+def create_access_token(data: dict, expires_delta: timedelta | None = None):
     return _create_token(
         data=data,
         token_type="access",
@@ -86,7 +86,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     )
 
 
-def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None):
+def create_refresh_token(data: dict, expires_delta: timedelta | None = None):
     return _create_token(
         data=data,
         token_type="refresh",
@@ -95,9 +95,9 @@ def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None):
 
 
 # N-4: Redis client for revocation cache — avoids a DB round-trip on every request.
-_revocation_redis: Optional[Any] = None
+_revocation_redis: Any | None = None
 
-def _get_revocation_redis() -> Optional[Any]:
+def _get_revocation_redis() -> Any | None:
     global _revocation_redis
     if _revocation_redis is not None:
         return _revocation_redis
@@ -120,26 +120,25 @@ def _is_token_revoked(jti: str | None) -> bool:
     if not jti or not settings.DATABASE_URL:
         return False
 
-    # N-4 fix: Check Redis first — fast O(1) lookup, avoids DB per request.
+    # Check Redis first for O(1) lookup. Only trust a positive hit (key present = revoked).
+    # A cache miss (key absent) is NOT treated as "not revoked" — Redis may have been
+    # flushed or restarted, so we always fall through to DB for the authoritative answer.
     redis_client = _get_revocation_redis()
     if redis_client is not None:
         try:
             if redis_client.get(f"revoked:{jti}") is not None:
                 return True
-            # Negative result: key absent means not revoked (trust Redis until TTL).
-            # We only fall through to DB on Redis errors below.
-            return False
+            # Cache miss: fall through to DB — do not short-circuit here.
         except Exception:
-            pass  # Fall through to DB on Redis errors
+            pass  # Redis error: fall through to DB
 
     try:
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT 1 FROM revoked_tokens WHERE jti = %s LIMIT 1",
-                    (jti,),
-                )
-                return cur.fetchone() is not None
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM revoked_tokens WHERE jti = %s LIMIT 1",
+                (jti,),
+            )
+            return cur.fetchone() is not None
     except Exception:
         return False
 
@@ -156,24 +155,23 @@ def revoke_access_token(token: str) -> bool:
     exp = payload.get("exp")
     if not jti or not exp:
         return False
-    expires_at = datetime.fromtimestamp(float(exp), tz=timezone.utc)
+    expires_at = datetime.fromtimestamp(float(exp), tz=UTC)
 
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
                 INSERT INTO revoked_tokens (jti, expires_at)
                 VALUES (%s, %s)
                 ON CONFLICT (jti) DO NOTHING
                 """,
-                (jti, expires_at),
-            )
+            (jti, expires_at),
+        )
 
     # N-4 fix: Populate Redis revocation cache so subsequent checks avoid DB.
     redis_client = _get_revocation_redis()
     if redis_client is not None:
         try:
-            ttl = max(1, int((expires_at - datetime.now(timezone.utc)).total_seconds()))
+            ttl = max(1, int((expires_at - datetime.now(UTC)).total_seconds()))
             redis_client.setex(f"revoked:{jti}", ttl, "1")
         except Exception:
             pass  # Non-fatal — DB is the source of truth
@@ -181,7 +179,7 @@ def revoke_access_token(token: str) -> bool:
     return True
 
 
-def decode_token(token: str, expected_type: str = "access") -> Optional[TokenData]:
+def decode_token(token: str, expected_type: str = "access") -> TokenData | None:
     try:
         payload = jwt.decode(token, _get_jwt_secret(), algorithms=[ALGORITHM])
         token_type: str = payload.get("typ", "access")
@@ -208,11 +206,11 @@ def decode_token(token: str, expected_type: str = "access") -> Optional[TokenDat
         return None
 
 
-def decode_access_token(token: str) -> Optional[TokenData]:
+def decode_access_token(token: str) -> TokenData | None:
     return decode_token(token, expected_type="access")
 
 
-def decode_refresh_token(token: str) -> Optional[TokenData]:
+def decode_refresh_token(token: str) -> TokenData | None:
     return decode_token(token, expected_type="refresh")
 
 from fastapi import Cookie, Depends, HTTPException, status
@@ -232,8 +230,8 @@ def _allow_dev_user() -> bool:
 
 
 async def get_current_user(
-    bearer: Optional[str] = Depends(oauth2_scheme),
-    cookie_token: Optional[str] = Cookie(None, alias="access_token"),
+    bearer: str | None = Depends(oauth2_scheme),
+    cookie_token: str | None = Cookie(None, alias="access_token"),
 ) -> TokenData:
     """Accept token from Authorization: Bearer header (API/Swagger) or httpOnly cookie (browser)."""
     token = bearer if isinstance(bearer, str) else None

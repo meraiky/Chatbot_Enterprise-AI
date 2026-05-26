@@ -1,17 +1,18 @@
+from unittest.mock import MagicMock, patch
+
 import pytest
 import pytest_asyncio
-from httpx import AsyncClient
-from main import app
-from app.api.v1 import chat as chat_api
-from app.api.v1.chat import _last_request_time
-from app.core.auth import TokenData, get_current_user
-from unittest.mock import MagicMock, patch
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+from httpx import ASGITransport, AsyncClient
 
-from httpx import ASGITransport
+from app.api.v1 import chat as chat_api
+from app.api.v1.chat import _last_request_time
+from app.core.auth import TokenData, get_current_user
+from main import app
+
 
 @pytest.fixture(autouse=True)
 def auth_override():

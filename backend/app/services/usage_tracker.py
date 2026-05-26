@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import math
@@ -13,7 +14,6 @@ import psycopg2.extras
 
 from app.core.config import settings
 from app.core.database import get_conn
-
 
 logger = logging.getLogger(__name__)
 
@@ -58,10 +58,8 @@ def _connect_sqlite() -> sqlite3.Connection:
         )
         """
     )
-    try:
+    with contextlib.suppress(sqlite3.OperationalError):
         connection.execute("ALTER TABLE token_usage ADD COLUMN conversation_id TEXT")
-    except sqlite3.OperationalError:
-        pass
     return connection
 
 
@@ -75,10 +73,9 @@ def _ensure_postgres_table() -> None:
     if _postgres_table_ready:
         return
     
-    with get_conn() as connection:
-        with connection.cursor() as cur:
-            cur.execute(
-                """
+    with get_conn() as connection, connection.cursor() as cur:
+        cur.execute(
+            """
                 CREATE TABLE IF NOT EXISTS token_usage (
                     id SERIAL PRIMARY KEY,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -96,21 +93,21 @@ def _ensure_postgres_table() -> None:
                     conversation_id TEXT
                 )
                 """
-            )
-            # N-7: Removed ALTER TABLE here — schema migration belongs in Alembic (003_qa_cache_token_columns.py).
-            # Keeping duplicate DDL in application code creates confusion about the single source of truth.
-            cur.execute(
-                "CREATE INDEX IF NOT EXISTS token_usage_created_at_idx ON token_usage (created_at)"
-            )
-            cur.execute(
-                "CREATE INDEX IF NOT EXISTS token_usage_conversation_id_idx ON token_usage (conversation_id)"
-            )
-            cur.execute(
-                "CREATE INDEX IF NOT EXISTS token_usage_request_id_idx ON token_usage (request_id)"
-            )
-            cur.execute(
-                "CREATE INDEX IF NOT EXISTS token_usage_operation_idx ON token_usage (operation)"
-            )
+        )
+        # N-7: Removed ALTER TABLE here — schema migration belongs in Alembic (003_qa_cache_token_columns.py).
+        # Keeping duplicate DDL in application code creates confusion about the single source of truth.
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS token_usage_created_at_idx ON token_usage (created_at)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS token_usage_conversation_id_idx ON token_usage (conversation_id)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS token_usage_request_id_idx ON token_usage (request_id)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS token_usage_operation_idx ON token_usage (operation)"
+        )
     
     _postgres_table_ready = True
     logger.info("PostgreSQL token_usage table initialized (DDL executed once)")
@@ -155,10 +152,9 @@ def _metadata_payload(metadata: str | dict[str, Any]) -> str:
 
 def _record_usage_postgres(payload: dict[str, Any]) -> None:
     _ensure_postgres_table()
-    with get_conn() as connection:
-        with connection.cursor() as cur:
-            cur.execute(
-                """
+    with get_conn() as connection, connection.cursor() as cur:
+        cur.execute(
+            """
                 INSERT INTO token_usage (
                     created_at, request_id, operation, mode, provider, model,
                     input_tokens, output_tokens, total_tokens, duration, estimated, metadata,
@@ -166,22 +162,22 @@ def _record_usage_postgres(payload: dict[str, Any]) -> None:
                 )
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::json, %s)
                 """,
-                (
-                    payload["created_at"],
-                    payload["request_id"],
-                    payload["operation"],
-                    payload["mode"],
-                    payload["provider"],
-                    payload["model"],
-                    payload["input_tokens"],
-                    payload["output_tokens"],
-                    payload["total_tokens"],
-                    payload["duration"],
-                    payload["estimated"],
-                    payload["metadata"],
-                    payload["conversation_id"],
-                ),
-            )
+            (
+                payload["created_at"],
+                payload["request_id"],
+                payload["operation"],
+                payload["mode"],
+                payload["provider"],
+                payload["model"],
+                payload["input_tokens"],
+                payload["output_tokens"],
+                payload["total_tokens"],
+                payload["duration"],
+                payload["estimated"],
+                payload["metadata"],
+                payload["conversation_id"],
+            ),
+        )
 
 
 def _record_usage_sqlite(payload: dict[str, Any]) -> None:
@@ -261,10 +257,9 @@ def record_usage(
 
 def _get_usage_summary_postgres() -> dict[str, Any]:
     _ensure_postgres_table()
-    with get_conn() as connection:
-        with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                """
+    with get_conn() as connection, connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """
                 SELECT
                     COUNT(*) AS records,
                     COALESCE(SUM(input_tokens), 0) AS input_tokens,
@@ -276,18 +271,18 @@ def _get_usage_summary_postgres() -> dict[str, Any]:
                         AS actual_tokens
                 FROM token_usage
                 """
-            )
-            row = cur.fetchone()
-            cur.execute(
-                """
+        )
+        row = cur.fetchone()
+        cur.execute(
+            """
                 SELECT operation, model, estimated, COUNT(*) AS records,
                        COALESCE(SUM(total_tokens), 0) AS total_tokens
                 FROM token_usage
                 GROUP BY operation, model, estimated
                 ORDER BY total_tokens DESC
                 """
-            )
-            by_operation = cur.fetchall()
+        )
+        by_operation = cur.fetchall()
 
     return {
         "records": int(row["records"]),
@@ -348,10 +343,9 @@ def get_usage_summary() -> dict[str, Any]:
 
 def _list_usage_records_postgres(limit: int) -> list[dict[str, Any]]:
     _ensure_postgres_table()
-    with get_conn() as connection:
-        with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                """
+    with get_conn() as connection, connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """
                 SELECT created_at, request_id, operation, mode, provider, model,
                        input_tokens, output_tokens, total_tokens, estimated, metadata,
                        conversation_id
@@ -359,9 +353,9 @@ def _list_usage_records_postgres(limit: int) -> list[dict[str, Any]]:
                 ORDER BY id DESC
                 LIMIT %s
                 """,
-                (limit,),
-            )
-            rows = cur.fetchall()
+            (limit,),
+        )
+        rows = cur.fetchall()
     return [
         {
             **dict(row),
@@ -402,11 +396,10 @@ def list_usage_records(limit: int = 50) -> list[dict[str, Any]]:
 
 def _reset_usage_postgres() -> int:
     _ensure_postgres_table()
-    with get_conn() as connection:
-        with connection.cursor() as cur:
-            cur.execute("SELECT COUNT(*) FROM token_usage")
-            count = cur.fetchone()[0]
-            cur.execute("DELETE FROM token_usage")
+    with get_conn() as connection, connection.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM token_usage")
+        count = cur.fetchone()[0]
+        cur.execute("DELETE FROM token_usage")
     return int(count)
 
 

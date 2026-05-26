@@ -16,6 +16,14 @@ echo -e "${CYAN}║   Chatbot Enterprise-AI — Dev Setup              ║${RESE
 echo -e "${CYAN}╚══════════════════════════════════════════════════╝${RESET}"
 echo ""
 
+# ── Windows check ──────────────────────────────────────────────────────────────
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" || "$OSTYPE" == "cygwin" ]]; then
+    warn "Windows detected. This script requires WSL2 or Git Bash."
+    warn "Recommended: open WSL2 terminal and run: bash scripts/setup.sh"
+    warn "Alternative: use scripts/setup.bat for a basic Windows setup."
+    echo ""
+fi
+
 # ── 1. Check prerequisites ─────────────────────────────────────────────────────
 info "Checking prerequisites..."
 
@@ -200,11 +208,8 @@ if [[ "${START_NOW,,}" == "y" ]]; then
     echo ""
     success "Backend is healthy."
 
-    # ── 7. Run database migrations ─────────────────────────────────────────────
-    info "Running Alembic migrations..."
-    $DOCKER_COMPOSE_CMD exec backend alembic upgrade head && success "Migrations applied." || warn "Migration failed — check logs."
-
-    # ── 8. Seed demo users ─────────────────────────────────────────────────────
+    # ── 7. Seed demo users ─────────────────────────────────────────────────────
+    # Note: Alembic migrations run automatically on backend startup — no manual step needed.
     echo ""
     read -rp "Seed demo users (admin + alice)? [Y/n]: " SEED_NOW
     SEED_NOW="${SEED_NOW:-Y}"

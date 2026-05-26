@@ -12,30 +12,30 @@ usage tracking → cache invalidation) is shared.
 
 from __future__ import annotations
 
+import csv
 import json
 import logging
 import re
-import csv
-import zipfile
 import tempfile
 import xml.etree.ElementTree as ET
+import zipfile
 from pathlib import Path
-from typing import List
 
 import fitz  # PyMuPDF
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+from app.core.config import settings
+from app.services.rag.cache_service import cache_service
+from app.services.rag.document_mirror import mirror_document_chunks
 from app.services.rag.document_registry import (
     build_document_id,
     delete_existing_document,
     utc_now,
 )
-from app.core.config import settings
-from app.services.usage_tracker import estimate_tokens, new_request_id, record_usage
-from app.services.rag.vector_store import get_vector_store
-from app.services.rag.cache_service import cache_service
-from app.services.rag.document_mirror import mirror_document_chunks
 from app.services.rag.injection_scanner import sanitize_chunk, scan_chunk
+from app.services.rag.vector_store import get_vector_store
+from app.services.usage_tracker import estimate_tokens, new_request_id, record_usage
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 _MINERU_AVAILABLE = False
 try:
-    from magic_pdf.data.data_reader_writer import FileBasedDataWriter, FileBasedDataReader
+    from magic_pdf.data.data_reader_writer import FileBasedDataReader, FileBasedDataWriter
     from magic_pdf.data.dataset import PymuDocDataset
     from magic_pdf.model.doc_analyze_by_custom_model import doc_analyze
     _MINERU_AVAILABLE = True
@@ -65,7 +65,7 @@ MINERU_SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".pptx", ".xlsx", ".doc"}
 
 def _extract_with_mineru(file_path: str, doc_id: str, doc_type: str,
                          source_name: str, checksum: str,
-                         uploaded_at: str) -> List[Document]:
+                         uploaded_at: str) -> list[Document]:
     """Extract document content using MinerU for layout-aware Markdown output.
 
     MinerU performs:
@@ -85,7 +85,7 @@ def _extract_with_mineru(file_path: str, doc_id: str, doc_type: str,
         output_dir.mkdir()
 
         # Read the raw file bytes
-        reader = FileBasedDataReader("")
+        FileBasedDataReader("")
         file_bytes = Path(file_path).read_bytes()
 
         # Run MinerU analysis pipeline
@@ -102,7 +102,7 @@ def _extract_with_mineru(file_path: str, doc_id: str, doc_type: str,
     # Split the Markdown into page-like sections using heading boundaries
     # MinerU output uses ## for page/section breaks
     sections = re.split(r'\n(?=#{1,3}\s)', md_content)
-    pages: List[Document] = []
+    pages: list[Document] = []
     for page_number, section in enumerate(sections, start=1):
         section_text = section.strip()
         if section_text:
@@ -125,9 +125,9 @@ def _extract_with_mineru(file_path: str, doc_id: str, doc_type: str,
 
 def _extract_with_pymupdf(file_path: str, doc_id: str, doc_type: str,
                            source_name: str, checksum: str,
-                           uploaded_at: str) -> List[Document]:
+                           uploaded_at: str) -> list[Document]:
     """Legacy PyMuPDF extraction — plain text, no layout awareness."""
-    pages: List[Document] = []
+    pages: list[Document] = []
     with fitz.open(file_path) as doc:
         for page_number, page in enumerate(doc, start=1):
             page_text = page.get_text().strip()
@@ -289,7 +289,7 @@ def process_and_index_file(file_path: str, doc_type: str, source_name: str, chec
     extractor_used = "unknown"
 
     # ── Step 1: Extract pages ──────────────────────────────────────────────
-    pages: List[Document] = []
+    pages: list[Document] = []
     file_ext = Path(source_name).suffix.lower()
 
     # Try MinerU first for supported formats
@@ -317,7 +317,7 @@ def process_and_index_file(file_path: str, doc_type: str, source_name: str, chec
                 logger.info("PyMuPDF extraction succeeded for %s (%d pages)",
                             source_name, len(pages))
             except Exception as e:
-                raise ValueError(f"Failed to read PDF: {e}")
+                raise ValueError(f"Failed to read PDF: {e}") from e
         elif file_ext == ".docx":
             pages = _docx_documents(file_path, doc_id, doc_type, source_name, checksum, uploaded_at)
             extractor_used = "manual"

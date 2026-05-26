@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
-import ipaddress
-from typing import Literal, Optional
+from typing import Literal
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -48,7 +48,7 @@ def _is_private_or_local_host(hostname: str) -> bool:
         return False
 
 
-def _validate_custom_endpoint(value: Optional[str]) -> Optional[str]:
+def _validate_custom_endpoint(value: str | None) -> str | None:
     if value is None:
         return value
     value = value.strip()
@@ -93,20 +93,20 @@ def _validate_custom_endpoint(value: Optional[str]) -> Optional[str]:
 class ModelConfigCreate(BaseModel):
     name: str = Field(..., min_length=2, max_length=100)
     provider: Provider
-    model_name: Optional[str] = Field(default=None, max_length=255)
-    custom_endpoint: Optional[str] = Field(default=None, max_length=500)
+    model_name: str | None = Field(default=None, max_length=255)
+    custom_endpoint: str | None = Field(default=None, max_length=500)
     temperature: float = Field(default=0.2, ge=0.0, le=2.0)
-    system_prompt: Optional[str] = Field(default=None, max_length=4000)
+    system_prompt: str | None = Field(default=None, max_length=4000)
     is_active: bool = True
     priority: int = 0
 
     @field_validator("custom_endpoint")
     @classmethod
-    def validate_custom_endpoint(cls, value: Optional[str]) -> Optional[str]:
+    def validate_custom_endpoint(cls, value: str | None) -> str | None:
         return _validate_custom_endpoint(value)
     
     @model_validator(mode='after')
-    def validate_custom_provider_has_endpoint(self) -> 'ModelConfigCreate':
+    def validate_custom_provider_has_endpoint(self) -> ModelConfigCreate:
         """Ensure custom provider has a custom_endpoint configured."""
         if self.provider == "custom" and not self.custom_endpoint:
             raise ValueError("custom_endpoint is required when provider is 'custom'")
@@ -114,17 +114,17 @@ class ModelConfigCreate(BaseModel):
 
 
 class ModelConfigUpdate(BaseModel):
-    name: Optional[str] = Field(default=None, min_length=2, max_length=100)
-    model_name: Optional[str] = Field(default=None, max_length=255)
-    custom_endpoint: Optional[str] = Field(default=None, max_length=500)
-    temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
-    system_prompt: Optional[str] = Field(default=None, max_length=4000)
-    is_active: Optional[bool] = None
-    priority: Optional[int] = None
+    name: str | None = Field(default=None, min_length=2, max_length=100)
+    model_name: str | None = Field(default=None, max_length=255)
+    custom_endpoint: str | None = Field(default=None, max_length=500)
+    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+    system_prompt: str | None = Field(default=None, max_length=4000)
+    is_active: bool | None = None
+    priority: int | None = None
 
     @field_validator("custom_endpoint")
     @classmethod
-    def validate_custom_endpoint(cls, value: Optional[str]) -> Optional[str]:
+    def validate_custom_endpoint(cls, value: str | None) -> str | None:
         return _validate_custom_endpoint(value)
 
 
@@ -136,10 +136,10 @@ class ModelConfigResponse(BaseModel):
     id: int
     name: str
     provider: Provider
-    model_name: Optional[str] = None
-    custom_endpoint: Optional[str] = None
+    model_name: str | None = None
+    custom_endpoint: str | None = None
     temperature: float = 0.2
-    system_prompt: Optional[str] = None
+    system_prompt: str | None = None
     is_active: bool = True
     priority: int = 0
     has_api_key: bool = False
@@ -166,24 +166,24 @@ class ModelConnectionTestResponse(BaseModel):
     ok: bool
     model_id: int
     provider: Provider
-    model_name: Optional[str] = None
-    endpoint: Optional[str] = None
+    model_name: str | None = None
+    endpoint: str | None = None
     detail: str
 
 
 class LegacyUserSettingsResponse(BaseModel):
     preferred_model: Literal["gemini", "anthropic", "openai", "custom"] = "gemini"
-    model_name: Optional[str] = None
+    model_name: str | None = None
     temperature: float = 0.2
-    system_prompt: Optional[str] = None
+    system_prompt: str | None = None
     credentials: dict[str, bool] = Field(default_factory=dict)
 
 
 class LegacyUserSettingsUpdate(BaseModel):
     preferred_model: Literal["gemini", "anthropic"] = "gemini"
-    model_name: Optional[str] = Field(default=None, max_length=200)
+    model_name: str | None = Field(default=None, max_length=200)
     temperature: float = Field(default=0.2, ge=0.0, le=2.0)
-    system_prompt: Optional[str] = Field(default=None, max_length=4000)
+    system_prompt: str | None = Field(default=None, max_length=4000)
 
 
 class LegacyCredentialStatusResponse(BaseModel):
@@ -198,9 +198,9 @@ class WebSearchPreferencesResponse(BaseModel):
 
 
 class WebSearchPreferencesUpdate(BaseModel):
-    allow_web_search: Optional[bool] = None
-    auto_web_search: Optional[bool] = None
-    web_search_providers: Optional[list[str]] = None
+    allow_web_search: bool | None = None
+    auto_web_search: bool | None = None
+    web_search_providers: list[str] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -224,13 +224,12 @@ def _require_model_permission(current_user: TokenData) -> int:
     the current database value prevents privilege retention until token expiry.
     """
     user_id = _require_user_id(current_user)
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT can_manage_models FROM users WHERE id = %s AND is_active = TRUE",
-                (user_id,),
-            )
-            row = cur.fetchone()
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT can_manage_models FROM users WHERE id = %s AND is_active = TRUE",
+            (user_id,),
+        )
+        row = cur.fetchone()
     if not row or not bool(row[0]):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -240,15 +239,14 @@ def _require_model_permission(current_user: TokenData) -> int:
 
 
 def _load_routing(user_id: int) -> RoutingConfigResponse:
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """SELECT routing_strategy, enabled_model_ids, fallback_order
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT routing_strategy, enabled_model_ids, fallback_order
                    FROM user_routing_config
                    WHERE user_id = %s""",
-                (user_id,),
-            )
-            row = cur.fetchone()
+            (user_id,),
+        )
+        row = cur.fetchone()
 
     if not row:
         return RoutingConfigResponse()
@@ -262,18 +260,17 @@ def _load_routing(user_id: int) -> RoutingConfigResponse:
 
 
 def _load_models(user_id: int) -> list[ModelConfigResponse]:
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """SELECT id, name, provider, model_name, custom_endpoint,
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT id, name, provider, model_name, custom_endpoint,
                           temperature, system_prompt, is_active, priority,
                           api_key_encrypted
                    FROM user_model_configs
                    WHERE user_id = %s
                    ORDER BY priority DESC, id""",
-                (user_id,),
-            )
-            rows = cur.fetchall()
+            (user_id,),
+        )
+        rows = cur.fetchall()
 
     models: list[ModelConfigResponse] = []
     for row in rows:
@@ -312,11 +309,10 @@ async def create_my_model(
 ):
     user_id = _require_model_permission(current_user)
 
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            try:
-                cur.execute(
-                    """INSERT INTO user_model_configs (
+    with get_conn() as conn, conn.cursor() as cur:
+        try:
+            cur.execute(
+                """INSERT INTO user_model_configs (
                             user_id, name, provider, model_name, custom_endpoint,
                             temperature, system_prompt, is_active, priority, updated_at
                         )
@@ -324,28 +320,28 @@ async def create_my_model(
                         RETURNING id, name, provider, model_name, custom_endpoint,
                                   temperature, system_prompt, is_active, priority,
                                   api_key_encrypted""",
-                    (
-                        user_id,
-                        body.name.strip(),
-                        body.provider,
-                        body.model_name.strip() if body.model_name else None,
-                        body.custom_endpoint,
-                        body.temperature,
-                        body.system_prompt,
-                        body.is_active,
-                        body.priority,
-                    ),
-                )
-                row = cur.fetchone()
-            except Exception as exc:
-                try:
-                    import psycopg2  # type: ignore[import-untyped]
-                    if isinstance(exc, psycopg2.errors.UniqueViolation):
-                        raise HTTPException(status_code=400, detail="A model config with that name already exists.") from exc
-                except ImportError:
-                    pass
-                logger.exception("Failed to create model config")
-                raise HTTPException(status_code=400, detail="Could not create model configuration.") from exc
+                (
+                    user_id,
+                    body.name.strip(),
+                    body.provider,
+                    body.model_name.strip() if body.model_name else None,
+                    body.custom_endpoint,
+                    body.temperature,
+                    body.system_prompt,
+                    body.is_active,
+                    body.priority,
+                ),
+            )
+            row = cur.fetchone()
+        except Exception as exc:
+            try:
+                import psycopg2  # type: ignore[import-untyped]
+                if isinstance(exc, psycopg2.errors.UniqueViolation):
+                    raise HTTPException(status_code=400, detail="A model config with that name already exists.") from exc
+            except ImportError:
+                pass
+            logger.exception("Failed to create model config")
+            raise HTTPException(status_code=400, detail="Could not create model configuration.") from exc
 
     if row is None:
         raise HTTPException(status_code=500, detail="Model configuration was not created.")
@@ -385,22 +381,21 @@ async def update_my_model(
         "is_active",
         "priority",
     }
-    fields = [k for k in patch.keys() if k in allowed]
+    fields = [k for k in patch if k in allowed]
     set_clause = ", ".join(f"{f} = %s" for f in fields) + ", updated_at = NOW()"
     values = [patch[f] for f in fields]
 
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"""UPDATE user_model_configs
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"""UPDATE user_model_configs
                     SET {set_clause}
                     WHERE id = %s AND user_id = %s
                     RETURNING id, name, provider, model_name, custom_endpoint,
                               temperature, system_prompt, is_active, priority,
                               api_key_encrypted""",
-                (*values, model_id, user_id),
-            )
-            row = cur.fetchone()
+            (*values, model_id, user_id),
+        )
+        row = cur.fetchone()
 
     if not row:
         raise HTTPException(status_code=404, detail="Model config not found")
@@ -426,13 +421,12 @@ async def delete_my_model(
 ):
     user_id = _require_model_permission(current_user)
 
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "DELETE FROM user_model_configs WHERE id = %s AND user_id = %s",
-                (model_id, user_id),
-            )
-            deleted = cur.rowcount
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM user_model_configs WHERE id = %s AND user_id = %s",
+            (model_id, user_id),
+        )
+        deleted = cur.rowcount
 
     if deleted == 0:
         raise HTTPException(status_code=404, detail="Model config not found")
@@ -447,18 +441,17 @@ async def set_model_api_key(
     user_id = _require_model_permission(current_user)
     encrypted_api_key = encrypt_credential(body.api_key.strip())
 
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """UPDATE user_model_configs
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """UPDATE user_model_configs
                    SET api_key_encrypted = %s, updated_at = NOW()
                    WHERE id = %s AND user_id = %s
                    RETURNING id, name, provider, model_name, custom_endpoint,
                              temperature, system_prompt, is_active, priority,
                              api_key_encrypted""",
-                (encrypted_api_key, model_id, user_id),
-            )
-            row = cur.fetchone()
+            (encrypted_api_key, model_id, user_id),
+        )
+        row = cur.fetchone()
 
     if not row:
         raise HTTPException(status_code=404, detail="Model config not found")
@@ -484,18 +477,17 @@ async def delete_model_api_key(
 ):
     user_id = _require_model_permission(current_user)
 
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """UPDATE user_model_configs
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """UPDATE user_model_configs
                    SET api_key_encrypted = NULL, updated_at = NOW()
                    WHERE id = %s AND user_id = %s
                    RETURNING id, name, provider, model_name, custom_endpoint,
                              temperature, system_prompt, is_active, priority,
                              api_key_encrypted""",
-                (model_id, user_id),
-            )
-            row = cur.fetchone()
+            (model_id, user_id),
+        )
+        row = cur.fetchone()
 
     if not row:
         raise HTTPException(status_code=404, detail="Model config not found")
@@ -521,15 +513,14 @@ async def test_my_model_connection(
 ):
     user_id = _require_model_permission(current_user)
 
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """SELECT id, provider, model_name, custom_endpoint, temperature, api_key_encrypted
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT id, provider, model_name, custom_endpoint, temperature, api_key_encrypted
                    FROM user_model_configs
                    WHERE id = %s AND user_id = %s""",
-                (model_id, user_id),
-            )
-            row = cur.fetchone()
+            (model_id, user_id),
+        )
+        row = cur.fetchone()
 
     if not row:
         raise HTTPException(status_code=404, detail="Model config not found")
@@ -623,10 +614,9 @@ async def update_my_routing(
     enabled_model_ids = json.dumps(body.enabled_model_ids)
     fallback_order = json.dumps(body.fallback_order)
 
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """INSERT INTO user_routing_config (
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO user_routing_config (
                         user_id, routing_strategy, enabled_model_ids, fallback_order, updated_at
                     )
                     VALUES (%s, %s, %s, %s, NOW())
@@ -636,9 +626,9 @@ async def update_my_routing(
                         fallback_order = EXCLUDED.fallback_order,
                         updated_at = NOW()
                     RETURNING routing_strategy, enabled_model_ids, fallback_order""",
-                (user_id, body.strategy, enabled_model_ids, fallback_order),
-            )
-            row = cur.fetchone()
+            (user_id, body.strategy, enabled_model_ids, fallback_order),
+        )
+        row = cur.fetchone()
 
     if row is None:
         raise HTTPException(status_code=500, detail="Routing configuration was not saved.")
@@ -694,18 +684,17 @@ async def update_my_settings(
 
     primary_name = f"Primary {body.preferred_model.title()}"
 
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """SELECT id FROM user_model_configs
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT id FROM user_model_configs
                    WHERE user_id = %s AND name = %s""",
-                (user_id, primary_name),
-            )
-            existing = cur.fetchone()
+            (user_id, primary_name),
+        )
+        existing = cur.fetchone()
 
-            if existing:
-                cur.execute(
-                    """UPDATE user_model_configs
+        if existing:
+            cur.execute(
+                """UPDATE user_model_configs
                        SET provider = %s,
                            model_name = %s,
                            temperature = %s,
@@ -713,29 +702,29 @@ async def update_my_settings(
                            is_active = true,
                            updated_at = NOW()
                        WHERE id = %s""",
-                    (
-                        body.preferred_model,
-                        body.model_name,
-                        body.temperature,
-                        body.system_prompt,
-                        existing[0],
-                    ),
-                )
-            else:
-                cur.execute(
-                    """INSERT INTO user_model_configs (
+                (
+                    body.preferred_model,
+                    body.model_name,
+                    body.temperature,
+                    body.system_prompt,
+                    existing[0],
+                ),
+            )
+        else:
+            cur.execute(
+                """INSERT INTO user_model_configs (
                             user_id, name, provider, model_name, temperature, system_prompt, is_active, updated_at
                         )
                         VALUES (%s, %s, %s, %s, %s, %s, true, NOW())""",
-                    (
-                        user_id,
-                        primary_name,
-                        body.preferred_model,
-                        body.model_name,
-                        body.temperature,
-                        body.system_prompt,
-                    ),
-                )
+                (
+                    user_id,
+                    primary_name,
+                    body.preferred_model,
+                    body.model_name,
+                    body.temperature,
+                    body.system_prompt,
+                ),
+            )
 
     return await get_my_settings(current_user)
 
@@ -751,33 +740,32 @@ async def upsert_my_credential(
     encrypted_api_key = encrypt_credential(body.api_key.strip())
     primary_name = f"Primary {provider.title()}"
 
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """SELECT id FROM user_model_configs
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT id FROM user_model_configs
                    WHERE user_id = %s AND name = %s""",
-                (user_id, primary_name),
-            )
-            existing = cur.fetchone()
+            (user_id, primary_name),
+        )
+        existing = cur.fetchone()
 
-            if existing:
-                cur.execute(
-                    """UPDATE user_model_configs
+        if existing:
+            cur.execute(
+                """UPDATE user_model_configs
                        SET provider = %s,
                            api_key_encrypted = %s,
                            is_active = true,
                            updated_at = NOW()
                        WHERE id = %s""",
-                    (provider, encrypted_api_key, existing[0]),
-                )
-            else:
-                cur.execute(
-                    """INSERT INTO user_model_configs (
+                (provider, encrypted_api_key, existing[0]),
+            )
+        else:
+            cur.execute(
+                """INSERT INTO user_model_configs (
                             user_id, name, provider, api_key_encrypted, is_active, updated_at
                         )
                         VALUES (%s, %s, %s, %s, true, NOW())""",
-                    (user_id, primary_name, provider, encrypted_api_key),
-                )
+                (user_id, primary_name, provider, encrypted_api_key),
+            )
 
     return LegacyCredentialStatusResponse(provider=provider, configured=True)
 
@@ -789,14 +777,13 @@ async def delete_my_credential(
 ):
     user_id = _require_user_id(current_user)
 
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """UPDATE user_model_configs
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """UPDATE user_model_configs
                    SET api_key_encrypted = NULL, updated_at = NOW()
                    WHERE user_id = %s AND provider = %s""",
-                (user_id, provider),
-            )
+            (user_id, provider),
+        )
 
     return LegacyCredentialStatusResponse(provider=provider, configured=False)
 
@@ -805,19 +792,18 @@ async def delete_my_credential(
 async def get_my_web_search_preferences(current_user: TokenData = Depends(get_current_user)):
     user_id = _require_user_id(current_user)
     
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT allow_web_search, auto_web_search, web_search_providers FROM user_search_preferences WHERE user_id = %s",
-                (user_id,),
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT allow_web_search, auto_web_search, web_search_providers FROM user_search_preferences WHERE user_id = %s",
+            (user_id,),
+        )
+        row = cur.fetchone()
+        if row:
+            return WebSearchPreferencesResponse(
+                allow_web_search=row[0],
+                auto_web_search=row[1],
+                web_search_providers=json.loads(row[2]) if isinstance(row[2], str) else row[2],
             )
-            row = cur.fetchone()
-            if row:
-                return WebSearchPreferencesResponse(
-                    allow_web_search=row[0],
-                    auto_web_search=row[1],
-                    web_search_providers=json.loads(row[2]) if isinstance(row[2], str) else row[2],
-                )
     
     # Default preferences if not found in DB
     return WebSearchPreferencesResponse()
@@ -837,25 +823,24 @@ async def update_my_web_search_preferences(
     #
     # For partial updates (some fields None), we still need current values as defaults.
     # We do this by reading current state in the same transaction via EXCLUDED + COALESCE.
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            # Read current values first (within same transaction for consistency)
-            cur.execute(
-                "SELECT allow_web_search, auto_web_search, web_search_providers FROM user_search_preferences WHERE user_id = %s",
-                (user_id,),
-            )
-            row = cur.fetchone()
+    with get_conn() as conn, conn.cursor() as cur:
+        # Read current values first (within same transaction for consistency)
+        cur.execute(
+            "SELECT allow_web_search, auto_web_search, web_search_providers FROM user_search_preferences WHERE user_id = %s",
+            (user_id,),
+        )
+        row = cur.fetchone()
 
-            # Apply partial updates on top of existing values (or defaults if no row yet)
-            allow = updates.allow_web_search if updates.allow_web_search is not None else (row[0] if row else False)
-            auto = updates.auto_web_search if updates.auto_web_search is not None else (row[1] if row else False)
-            providers = (
-                updates.web_search_providers if updates.web_search_providers is not None
-                else (json.loads(row[2]) if row and isinstance(row[2], str) else (row[2] if row else ["duckduckgo"]))
-            )
+        # Apply partial updates on top of existing values (or defaults if no row yet)
+        allow = updates.allow_web_search if updates.allow_web_search is not None else (row[0] if row else False)
+        auto = updates.auto_web_search if updates.auto_web_search is not None else (row[1] if row else False)
+        providers = (
+            updates.web_search_providers if updates.web_search_providers is not None
+            else (json.loads(row[2]) if row and isinstance(row[2], str) else (row[2] if row else ["duckduckgo"]))
+        )
 
-            cur.execute(
-                """
+        cur.execute(
+            """
                 INSERT INTO user_search_preferences (user_id, allow_web_search, auto_web_search, web_search_providers)
                 VALUES (%s, %s, %s, %s)
                 ON CONFLICT (user_id) DO UPDATE SET
@@ -864,6 +849,6 @@ async def update_my_web_search_preferences(
                     web_search_providers = EXCLUDED.web_search_providers,
                     updated_at = NOW()
                 """,
-                (user_id, allow, auto, json.dumps(providers)),
-            )
-            return WebSearchPreferencesResponse(allow_web_search=allow, auto_web_search=auto, web_search_providers=providers)
+            (user_id, allow, auto, json.dumps(providers)),
+        )
+        return WebSearchPreferencesResponse(allow_web_search=allow, auto_web_search=auto, web_search_providers=providers)
