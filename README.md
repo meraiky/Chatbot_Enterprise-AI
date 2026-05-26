@@ -11,6 +11,8 @@ A self-hosted enterprise AI chatbot for internal knowledge bases. It includes do
 
 **New to this project? Start with [`QUICKSTART.md`](QUICKSTART.md) for a 5-minute setup guide.**
 
+> 📸 **Screenshots** — see [`docs/media/`](docs/media/) for UI screenshots once the stack is running locally.
+
 ---
 
 ## What You Get
@@ -63,6 +65,7 @@ graph TD
         D[Topic Guard]
         E[RAG Engine]
         F[Model Router]
+        G[Background Indexer]
     end
 
     subgraph Storage
@@ -70,12 +73,14 @@ graph TD
         J[(Redis\nexact-match cache)]
     end
 
-    A -->|REST / SSE| C --> D
+    A -->|chat REST / SSE| C --> D
+    A -->|upload → 202 + poll_url| C --> G
     D -->|in-scope| E
     E -->|L1 miss| J
     E -->|L2 miss + retrieve| H
     E -->|ranked context| F
     F -->|Gemini · Claude · GPT| E
+    G -->|embed + index chunks| H
 ```
 
 ---
@@ -266,7 +271,7 @@ Native async, first-class SSE streaming, and tight Python AI ecosystem integrati
 Document chunks, semantic cache, and topic guard all live in the same PostgreSQL database. A single operational surface means one backup strategy, one monitoring dashboard, and transactional consistency between chunk writes and cache invalidation. Embeddings are generated locally via `sentence-transformers/all-mpnet-base-v2` (768 dims) — no external API call, no vendor lock-in, and 768 dims fits within Neon's HNSW index limit so ANN search is fast.
 
 **Why two cache layers?**
-Redis gives sub-millisecond exact-match hits. pgvector semantic cache catches near-duplicate questions that differ in phrasing. Combined hit rate is high enough to cut LLM calls by 40–60% on repeated internal FAQs.
+Redis gives sub-millisecond exact-match hits. pgvector semantic cache catches near-duplicate questions that differ in phrasing. On workloads with repeated internal FAQs, the two layers together meaningfully reduce redundant LLM calls.
 
 **What does the usage dashboard store?**
 Usage analytics are intentionally content-light: token counts, model/operation metadata, request IDs, and source references. Raw user questions, answer previews, and web-search queries are not written to usage metadata or search cache records. Migration `017` redacts those fields from existing records.
